@@ -1,0 +1,115 @@
+#!/usr/bin/env -S bash -e
+
+print_usage() {
+    echo "USAGE"
+    echo "  gh get repos <owner> [options]"
+    echo ""
+    echo "ARGUMENTS"
+    echo "  <owner>       The owner of the repositories to get/list"
+    echo ""
+    echo "FLAGS"
+    echo "  --dry-run     Prints the names of the repositories to be cloned or  [flag]"
+    echo "                updated, but does not actually clone or update them."
+    echo "  --help, -h    Prints this help message                              [flag]"
+    echo ""
+    echo "OPTIONS"
+    echo "  --language    Limit repositories to those where the primary coding  [string]"
+    echo "                language matches this value"
+    echo "  --limit       Limit the number of repositories returned by the API  [integer]"
+    echo "                to the value specified"
+    echo "  --path        Location where the repositories will be stored after  [string]"
+    echo "                cloning or updating"
+    echo "  --sleep       Sleep the specified number of seconds before issuing  [integer]"
+    echo "                the next clone/update command. This can be useful in"
+    echo "                mitigating anti-DDOS and rate-limiting mechanisms."
+    echo "  --topic       Limit repositories to those where one of the topics   [string]"
+    echo "                matches this value"
+    echo ""
+    echo "EXAMPLES"
+    echo ""
+    echo "  $ gh get-repos jrmash"
+    echo "  $ gh get-repos jrmash --dry-run"
+    echo "  $ gh get-repos jrmash --language hcl"
+    echo "  $ gh get-repos jrmash --topic terraform"
+    echo ""
+}
+
+declare -A EXT_OPTS=(
+    [--dry-run]=false
+    [--sleep]=0
+)
+
+declare -a GH_CMD=("gh" "repo" "list")
+declare -A GH_CMD_OPTS=(
+    [--language]=""
+    [--limit]=10000
+    [--topic]=""
+
+    [--jq]=".[].nameWithOwner"
+    [--json]="nameWithOwner"
+)
+declare GH_OWNER="$(gh api user --jq '.login')"
+
+## Process the command line arguments and options
+while [ "${1}" != "" ]; do
+    case "${1}" in
+        ## Options passed directly through to `gh repo list`
+        --language | --limit | --topic )
+            GH_CMD_OPTS["${1}"]="${2}" && shift;;
+
+        ## Options providing additional behavior for the extension
+        --dry-run )
+            EXT_OPTS["${1}"]=true;;
+        --help | -h )
+            print_usage && exit 0;;
+        --path )
+            mkdir -p "${2}" && cd "${2}" && shift;;
+        --sleep )
+            EXT_OPTS[${1}]="${2}" && shift;;
+
+        * )
+            GH_OWNER="${1}";;
+    esac
+    shift
+done
+
+## Generate and execute the 'gh repo list' command to query the GitHub API for a
+## list of repositories in the specified owner's namespace that match the search
+## filters provided.
+GH_CMD+=("${GH_OWNER}")
+for opt in "${!GH_CMD_OPTS[@]}"; do
+    if [ "${GH_CMD_OPTS[${opt}]}" != "" ]; then
+        GH_CMD[${#GH_CMD[@]}]="${opt}"
+        GH_CMD[${#GH_CMD[@]}]="${GH_CMD_OPTS[${opt}]}"
+    fi
+done
+mapfile -t REPOS < <("${GH_CMD[@]}")
+
+## Iterate the list of repositories generated above and either print the list to
+## the terminal or use the list to clone and/or update each found repository. If
+## the '--path' option was specified, that's where the repositories will reside,
+## otherwise the current working directory will be used.
+printf "%s\n" "$(tput setaf 4)Found ${#REPOS[@]} repositories in @${GH_OWNER}$(tput sgr 0)"
+if  [ "${EXT_OPTS[--dry-run]}" == true ]; then
+    printf "%b\n" "$(tput setaf 3)" "${REPOS[@]/#/>> }" "$(tput sgr 0)"
+else
+    for repo in "${REPOS[@]}"; do
+        printf "\n%s\n" "$(tput setaf 3)>> Processing '${repo}' repository$(tput sgr 0)"
+        repo_dir=${repo#"${GH_OWNER}"/}
+
+        if [ -d "${repo_dir}" ]; then
+            default_branch="$(gh api "repos/${repo}" -q '.default_branch')"
+
+            git -C "${repo_dir}" checkout "${default_branch}"
+            git -C "${repo_dir}" pull
+        else
+            gh repo clone "${repo}"
+        fi
+
+        ## 03/01/2022: Over the past couple weeks, an increase in "connection reset"
+        ## errors has been observed. The appearance and behavior of the errors seems
+        ## like some sort of anti-DDOS mechanism, so this configurable sleep command
+        ## was added to let the user slow down the rate at which commands are run.
+        sleep "${EXT_OPTS[--sleep]}"
+    done
+fi
