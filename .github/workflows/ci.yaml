@@ -1,0 +1,47 @@
+name: Extension CI
+
+on:
+  pull_request:
+    paths:
+      - gh-get-repos
+  workflow_dispatch:
+
+jobs:
+  analyze-extension:
+    name: Analyze Extension
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@master
+      - name: ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with: 
+          additional_files: 'gh-get-repos'
+        env:
+          SHELLCHECK_OPTS: -e SC1091 -e SC2155
+  verify-extension:
+    name: Verify Extension
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-20.04
+          - ubuntu-18.04
+          - macos-11
+          - macos-10.15
+          - windows-2022
+          - windows-2019
+    steps:
+      - name: Checkout
+        uses: actions/checkout@master
+      - name: Install
+        run: |
+          gh extension install .
+        env:
+          GITHUB_TOKEN: ${{ secrets.ACTIONS_CI_TOKEN }}
+      - name: Verify
+        run: |
+          gh get-repos --dry-run
+        env:
+          GITHUB_TOKEN: ${{ secrets.ACTIONS_CI_TOKEN }}
