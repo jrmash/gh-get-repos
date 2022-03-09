@@ -89,7 +89,7 @@ GH_CMD+=("--json" "nameWithOwner")
 declare -a REPOS=()
 while IFS= read -r entry; do
     REPOS+=("${entry}")
-done < <("${GH_CMD[@]}")
+done <<< "$("${GH_CMD[@]}")"
 
 ## Iterate the list of repositories generated above and either print the list to
 ## the terminal or use the list to clone and/or update each found repository. If
