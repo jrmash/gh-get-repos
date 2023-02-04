@@ -51,6 +51,10 @@ while [ "${1}" != "" ]; do
         --help | -h )
             print_usage && exit 0;;
 
+        ## Arguments without a leading dash should be the owner
+        [^-][a-zA-Z0-9-_]* )
+            GH_OWNER="${1}";;
+
         ## Options passed directly through to `gh repo list`
         --language | -l )
             shift && GH_CMD_OPT_LANGUAGE="${1}";;
@@ -66,10 +70,6 @@ while [ "${1}" != "" ]; do
             shift && mkdir -p "${1}" && cd "${1}";;
         --sleep )
             shift && EXT_OPT_SLEEP="${1}";;
-        
-        ## The remaining command line argument should be the owner
-        [a-zA-Z0-9-_]* )
-            GH_OWNER="${1}";;
     esac
     shift
 done
@@ -90,7 +90,7 @@ GH_CMD+=("--json" "nameWithOwner")
 
 declare -a REPOS=()
 while IFS= read -r entry; do
-    REPOS+=("${entry}")
+    [[ ${entry} ]] && REPOS+=("${entry}")
 done <<< "$("${GH_CMD[@]}")"
 
 ## Iterate the list of repositories generated above and either print the list to
