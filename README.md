@@ -21,17 +21,18 @@ FLAGS
   --help, -h        Prints this help message                              [flag]
 
 OPTIONS
-  --language, -l    Limit repositories to those where the primary coding  [string]
+  --language, -l    Limit repositories to those where the primary coding  [string, Env: GHGR_OPT_LANGUAGE]
                     language matches this value
-  --max-repos, -m   Limit the number of repositories returned by the API  [integer]
+  --max-repos, -m   Limit the number of repositories returned by the API  [integer, Env: GHGR_OPT_LIMIT]
                     to the value specified
-  --path, -p        Location where the repositories will be stored after  [string]
-                    cloning or updating
-  --sleep, -s       Sleep the specified number of seconds before issuing  [integer]
+  --sleep, -s       Sleep the specified number of seconds before issuing  [integer, Env: GHGR_OPT_SLEEP]
                     the next clone/update command. This can be useful in
                     mitigating anti-DDOS and rate-limiting mechanisms.
-  --topic, -t       Limit repositories to those where one of the topics   [string]
+  --topic, -t       Limit repositories to those where one of the topics   [string, Env: GHGR_OPT_TOPIC]
                     matches this value
+
+  --path, -p        Location where the repositories will be stored after  [string]
+                    cloning or updating
 
 EXAMPLES
 
@@ -39,4 +40,5 @@ EXAMPLES
   $ gh get-repos jrmash --dry-run
   $ gh get-repos jrmash --language hcl
   $ gh get-repos jrmash --topic terraform
+
 ```

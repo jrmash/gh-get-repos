@@ -15,17 +15,18 @@ print_usage() {
     echo "  --help, -h        Prints this help message                              [flag]"
     echo ""
     echo "OPTIONS"
-    echo "  --language, -l    Limit repositories to those where the primary coding  [string]"
+    echo "  --language, -l    Limit repositories to those where the primary coding  [string, Env: GHGR_OPT_LANGUAGE]"
     echo "                    language matches this value"
-    echo "  --max-repos, -m   Limit the number of repositories returned by the API  [integer]"
+    echo "  --max-repos, -m   Limit the number of repositories returned by the API  [integer, Env: GHGR_OPT_LIMIT]"
     echo "                    to the value specified"
-    echo "  --path, -p        Location where the repositories will be stored after  [string]"
-    echo "                    cloning or updating"
-    echo "  --sleep, -s       Sleep the specified number of seconds before issuing  [integer]"
+    echo "  --sleep, -s       Sleep the specified number of seconds before issuing  [integer, Env: GHGR_OPT_SLEEP]"
     echo "                    the next clone/update command. This can be useful in"
     echo "                    mitigating anti-DDOS and rate-limiting mechanisms."
-    echo "  --topic, -t       Limit repositories to those where one of the topics   [string]"
+    echo "  --topic, -t       Limit repositories to those where one of the topics   [string, Env: GHGR_OPT_TOPIC]"
     echo "                    matches this value"
+    echo ""
+    echo "  --path, -p        Location where the repositories will be stored after  [string]"
+    echo "                    cloning or updating"
     echo ""
     echo "EXAMPLES"
     echo ""
@@ -36,13 +37,12 @@ print_usage() {
     echo ""
 }
 
-declare EXT_OPT_DRY_RUN=false
-declare EXT_OPT_SLEEP=0
-
 declare -a GH_CMD=("gh" "repo" "list")
-declare GH_CMD_OPT_LANGUAGE=""
-declare GH_CMD_OPT_LIMIT=10000
-declare GH_CMD_OPT_TOPIC=""
+declare GHGR_OPT_DRY_RUN=false
+declare GHGR_OPT_LANGUAGE="${GHGR_OPT_LANGUAGE:=}"
+declare GHGR_OPT_LIMIT="${GHGR_OPT_LIMIT:=10000}"
+declare GHGR_OPT_SLEEP="${GHGR_OPT_SLEEP:=0}"
+declare GHGR_OPT_TOPIC="${GHGR_OPT_TOPIC:=}"
 declare GH_OWNER="$(gh api user --jq '.login')"
 
 ## Process the command line arguments and options
@@ -51,25 +51,25 @@ while [ "${1}" != "" ]; do
         --help | -h )
             print_usage && exit 0;;
 
+        ## Arguments without a leading dash should be the owner
+        [^-][a-zA-Z0-9-_]* )
+            GH_OWNER="${1}";;
+
         ## Options passed directly through to `gh repo list`
         --language | -l )
-            shift && GH_CMD_OPT_LANGUAGE="${1}";;
+            shift && GHGR_OPT_LANGUAGE="${1}";;
         --max | -m )
-            shift && GH_CMD_OPT_LIMIT="${1}";;
+            shift && GHGR_OPT_LIMIT="${1}";;
         --topic | -t )
-            shift && GH_CMD_OPT_TOPIC="${1}";;
+            shift && GHGR_OPT_TOPIC="${1}";;
         
         ## Options providing additional behavior for the extension
         --dry-run )
-            EXT_OPT_DRY_RUN=true;;
+            GHGR_OPT_DRY_RUN=true;;
         --path | -p )
             shift && mkdir -p "${1}" && cd "${1}";;
         --sleep )
-            shift && EXT_OPT_SLEEP="${1}";;
-        
-        ## The remaining command line argument should be the owner
-        [a-zA-Z0-9-_]* )
-            GH_OWNER="${1}";;
+            shift && GHGR_OPT_SLEEP="${1}";;
     esac
     shift
 done
@@ -77,20 +77,20 @@ done
 ## Generate and execute the 'gh repo list' command to query the GitHub API for a
 ## list of repositories in the specified owner's namespace that match the search
 ## filters provided.
-declare GH_CMD=("gh" "repo" "list" "${GH_OWNER}" "--limit" "${GH_CMD_OPT_LIMIT}")
+declare GH_CMD=("gh" "repo" "list" "${GH_OWNER}" "--limit" "${GHGR_OPT_LIMIT}")
 
-if [ "${GH_CMD_OPT_LANGUAGE}" != "" ]; then
-    GH_CMD+=("--language" "${GH_CMD_OPT_LANGUAGE}")
+if [ "${GHGR_OPT_LANGUAGE}" != "" ]; then
+    GH_CMD+=("--language" "${GHGR_OPT_LANGUAGE}")
 fi
-if [ "${GH_CMD_OPT_TOPIC}" != "" ]; then
-    GH_CMD+=("--topic" "${GH_CMD_OPT_TOPIC}")
+if [ "${GHGR_OPT_TOPIC}" != "" ]; then
+    GH_CMD+=("--topic" "${GHGR_OPT_TOPIC}")
 fi
 GH_CMD+=("--jq" ".[].nameWithOwner")
 GH_CMD+=("--json" "nameWithOwner")
 
 declare -a REPOS=()
 while IFS= read -r entry; do
-    REPOS+=("${entry}")
+    [[ ${entry} ]] && REPOS+=("${entry}")
 done <<< "$("${GH_CMD[@]}")"
 
 ## Iterate the list of repositories generated above and either print the list to
@@ -98,7 +98,7 @@ done <<< "$("${GH_CMD[@]}")"
 ## the '--path' option was specified, that's where the repositories will reside,
 ## otherwise the current working directory will be used.
 printf "%s\n" "$(tput setaf 4)Found ${#REPOS[@]} repositories in @${GH_OWNER}$(tput sgr 0)"
-if  [ "${EXT_OPT_DRY_RUN}" == true ]; then
+if  [ "${GHGR_OPT_DRY_RUN}" == true ]; then
     printf "%b\n" "$(tput setaf 3)" "${REPOS[@]/#/>> }" "$(tput sgr 0)"
 else
     set +e
@@ -123,7 +123,7 @@ else
         ## so this "sleep" option was added to allow users to slow down the rate
         ## at which commands are executed. The user that originally reported the
         ## issue has since been able to use this without issue.
-        sleep "${EXT_OPT_SLEEP}"
+        sleep "${GHGR_OPT_SLEEP}"
     done
     echo ""
 fi
