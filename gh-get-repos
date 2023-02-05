@@ -10,23 +10,36 @@ print_usage() {
     echo "  <owner>           The owner of the repositories to get/list"
     echo ""
     echo "FLAGS"
-    echo "  --dry-run         Prints the names of the repositories to be cloned or  [flag]"
-    echo "                    updated, but does not actually clone or update them."
-    echo "  --help, -h        Prints this help message                              [flag]"
+    echo "  $(tput setaf 4)--dry-run         $(tput setaf 3)Flag$(tput sgr 0)"
+    echo "      Prints the names of the repositories to be cloned or updated but does not perform"
+    echo "      any actions."
+    echo "  $(tput setaf 4)--help, -h        $(tput setaf 3)Flag$(tput sgr 0)"
+    echo "      Prints this help message."
     echo ""
     echo "OPTIONS"
-    echo "  --language, -l    Limit repositories to those where the primary coding  [string, Env: GHGR_OPT_LANGUAGE]"
-    echo "                    language matches this value"
-    echo "  --max-repos, -m   Limit the number of repositories returned by the API  [integer, Env: GHGR_OPT_LIMIT]"
-    echo "                    to the value specified"
-    echo "  --sleep, -s       Sleep the specified number of seconds before issuing  [integer, Env: GHGR_OPT_SLEEP]"
-    echo "                    the next clone/update command. This can be useful in"
-    echo "                    mitigating anti-DDOS and rate-limiting mechanisms."
-    echo "  --topic, -t       Limit repositories to those where one of the topics   [string, Env: GHGR_OPT_TOPIC]"
-    echo "                    matches this value"
+    echo "  $(tput setaf 4)--archived, -a    $(tput setaf 3)String, Env: GHGR_OPT_ARCHIVED, Values: exclude, only$(tput sgr 0)"
+    echo "      Limit repositories based on their archived status in relation to the value of this"
+    echo "      option."
     echo ""
-    echo "  --path, -p        Location where the repositories will be stored after  [string]"
-    echo "                    cloning or updating"
+    echo "  $(tput setaf 4)--language, -l    $(tput setaf 3)String, Env: GHGR_OPT_LANGUAGE, Values: Any string$(tput sgr 0)"
+    echo "      Limit repositories to those where the primary language matches the value specified."
+    echo ""
+    echo "  $(tput setaf 4)--max-repos, -m   $(tput setaf 3)Integer, Env: GHGR_OPT_LIMIT, Values: Any number$(tput sgr 0)"
+    echo "      Limit the number of repositories returned by the API to the value specified."
+    echo ""
+    echo "  $(tput setaf 4)--topic, -t       $(tput setaf 3)String, Env: GHGR_OPT_TOPIC, Values: Any string$(tput sgr 0)"
+    echo "      Limit repositories to those where one of the topics matches the value specified."
+    echo ""
+    echo "  $(tput setaf 4)--sleep, -s       $(tput setaf 3)Integer, Env: GHGR_OPT_SLEEP, Values: Any number$(tput sgr 0)"
+    echo "      Sleep the specified number of seconds before issuing the next command. This can be"
+    echo "      useful in mitigating anti-DDOPS or rate-limiting mechanisms."
+    echo ""
+    echo "  $(tput setaf 4)--visibility, -v  $(tput setaf 3)String, Env: GHGR_OPT_VISIBILITY, Values: internal, private, public$(tput sgr 0)"
+    echo "      Limit repositories based on their visibility status in relation to the value of this"
+    echo "      option"
+    echo ""
+    echo "  $(tput setaf 4)--path, -p        $(tput setaf 3)String$(tput sgr 0)"
+    echo "      Location where the repositories will be cloned/updated."    
     echo ""
     echo "EXAMPLES"
     echo ""
@@ -37,13 +50,14 @@ print_usage() {
     echo ""
 }
 
-declare -a GH_CMD=("gh" "repo" "list")
-declare GHGR_OPT_DRY_RUN=false
+declare GH_OWNER="$(gh api user --jq '.login')"
+declare GHGR_OPT_ARCHIVED="${GHGR_OPT_ARCHIVED:=}"
 declare GHGR_OPT_LANGUAGE="${GHGR_OPT_LANGUAGE:=}"
 declare GHGR_OPT_LIMIT="${GHGR_OPT_LIMIT:=10000}"
 declare GHGR_OPT_SLEEP="${GHGR_OPT_SLEEP:=0}"
 declare GHGR_OPT_TOPIC="${GHGR_OPT_TOPIC:=}"
-declare GH_OWNER="$(gh api user --jq '.login')"
+
+declare GHGR_OPT_DRY_RUN=false
 
 ## Process the command line arguments and options
 while [ "${1}" != "" ]; do
@@ -56,20 +70,24 @@ while [ "${1}" != "" ]; do
             GH_OWNER="${1}";;
 
         ## Options passed directly through to `gh repo list`
+        --archived )
+            shift && GHGR_OPT_ARCHIVED="${1}";;
         --language | -l )
             shift && GHGR_OPT_LANGUAGE="${1}";;
-        --max | -m )
+        --max-repos | -m )
             shift && GHGR_OPT_LIMIT="${1}";;
+        --sleep )
+            shift && GHGR_OPT_SLEEP="${1}";;
         --topic | -t )
             shift && GHGR_OPT_TOPIC="${1}";;
+        --visibility )
+            shift && GHGR_OPT_VISIBILITY="${1}";;
         
         ## Options providing additional behavior for the extension
         --dry-run )
             GHGR_OPT_DRY_RUN=true;;
         --path | -p )
             shift && mkdir -p "${1}" && cd "${1}";;
-        --sleep )
-            shift && GHGR_OPT_SLEEP="${1}";;
     esac
     shift
 done
@@ -77,14 +95,28 @@ done
 ## Generate and execute the 'gh repo list' command to query the GitHub API for a
 ## list of repositories in the specified owner's namespace that match the search
 ## filters provided.
-declare GH_CMD=("gh" "repo" "list" "${GH_OWNER}" "--limit" "${GHGR_OPT_LIMIT}")
+declare GH_CMD=("gh" "repo" "list" "${GH_OWNER}")
+
+if [ "${GHGR_OPT_ARCHIVED}" == "exclude" ]; then
+    GH_CMD+=("--no-archived")
+elif [ "${GHGR_OPT_ARCHIVED}" == "only" ]; then
+    GH_CMD+=("--archived")
+fi
 
 if [ "${GHGR_OPT_LANGUAGE}" != "" ]; then
     GH_CMD+=("--language" "${GHGR_OPT_LANGUAGE}")
 fi
+if [[ "${GHGR_OPT_LIMIT}" =~ ^[0-9]*$ ]]; then
+    GH_CMD+=("--limit" "${GHGR_OPT_LIMIT}")
+fi
 if [ "${GHGR_OPT_TOPIC}" != "" ]; then
     GH_CMD+=("--topic" "${GHGR_OPT_TOPIC}")
 fi
+
+if [[ "${GHGR_OPT_VISIBILITY}" =~ ^(internal|private|public)$ ]]; then
+    GH_CMD+=("--visibility" "${GHGR_OPT_VISIBILITY}")
+fi
+
 GH_CMD+=("--jq" ".[].nameWithOwner")
 GH_CMD+=("--json" "nameWithOwner")
 
@@ -123,7 +155,9 @@ else
         ## so this "sleep" option was added to allow users to slow down the rate
         ## at which commands are executed. The user that originally reported the
         ## issue has since been able to use this without issue.
-        sleep "${GHGR_OPT_SLEEP}"
+        if [[ "${GHGR_OPT_SLEEP}" =~ ^[0-9]*$ ]]; then
+            sleep "${GHGR_OPT_SLEEP}"
+        fi
     done
     echo ""
 fi
