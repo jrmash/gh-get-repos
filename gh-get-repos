@@ -70,17 +70,17 @@ while [ "${1}" != "" ]; do
             GH_OWNER="${1}";;
 
         ## Options passed directly through to `gh repo list`
-        --archived )
+        --archived | -a )
             shift && GHGR_OPT_ARCHIVED="${1}";;
         --language | -l )
             shift && GHGR_OPT_LANGUAGE="${1}";;
         --max-repos | -m )
             shift && GHGR_OPT_LIMIT="${1}";;
-        --sleep )
+        --sleep | -s )
             shift && GHGR_OPT_SLEEP="${1}";;
         --topic | -t )
             shift && GHGR_OPT_TOPIC="${1}";;
-        --visibility )
+        --visibility | -v )
             shift && GHGR_OPT_VISIBILITY="${1}";;
         
         ## Options providing additional behavior for the extension
