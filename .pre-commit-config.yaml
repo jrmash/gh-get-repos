@@ -1,21 +1,45 @@
 fail_fast: true
 repos:
-- repo: https://github.com/pre-commit/pre-commit-hooks
-  rev: v4.1.0
-  hooks:
-    - id: check-case-conflict
-    - id: check-merge-conflict
-    - id: check-symlinks
-    - id: check-yaml
-    - id: end-of-file-fixer
-    - id: fix-byte-order-marker
-    - id: forbid-new-submodules
-    - id: mixed-line-ending
-    - id: no-commit-to-branch
-      args: [--branch, main]
-    - id: trailing-whitespace
--   repo: https://github.com/koalaman/shellcheck-precommit
-    rev: v0.8.0
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
     hooks:
-    -   id: shellcheck
-        args: ["-e", "SC2155"]
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-symlinks
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: fix-byte-order-marker
+      - id: forbid-new-submodules
+      - id: mixed-line-ending
+      - id: no-commit-to-branch
+        args: [--branch, main]
+      - id: trailing-whitespace
+  - repo: local
+    hooks:
+      - id: gofmt
+        name: Format Go files
+        entry: gofmt -w
+        language: system
+        types: [go]
+        require_serial: true
+      - id: go-mod-tidy
+        name: Check Go module metadata
+        entry: go mod tidy -diff
+        language: system
+        files: '(^go\.(mod|sum)$|\.go$)'
+        pass_filenames: false
+        require_serial: true
+      - id: go-vet
+        name: Vet Go packages
+        entry: go vet ./...
+        language: system
+        files: '(^go\.(mod|sum)$|\.go$)'
+        pass_filenames: false
+        require_serial: true
+      - id: go-test
+        name: Test Go packages
+        entry: go test ./...
+        language: system
+        files: '(^go\.(mod|sum)$|\.go$)'
+        pass_filenames: false
+        require_serial: true
