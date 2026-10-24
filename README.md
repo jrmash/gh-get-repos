@@ -4,7 +4,6 @@
 [![Smoke](https://github.com/jrmash/gh-get-repos/actions/workflows/smoke.yml/badge.svg?branch=main)](https://github.com/jrmash/gh-get-repos/actions/workflows/smoke.yml?query=branch%3Amain)
 [![CodeQL](https://github.com/jrmash/gh-get-repos/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/jrmash/gh-get-repos/actions/workflows/codeql.yml?query=branch%3Amain)
 [![Vulnerabilities](https://github.com/jrmash/gh-get-repos/actions/workflows/vulnerabilities.yml/badge.svg?branch=main)](https://github.com/jrmash/gh-get-repos/actions/workflows/vulnerabilities.yml?query=branch%3Amain)
-[![Coverage requirement: at least 90%](https://img.shields.io/badge/coverage_gate-%E2%89%A590%25-blue)](.github/workflows/ci.yml)
 
 Clone or update every accessible GitHub repository owned by a user or organization, with filters and predictable directory layouts.
 
@@ -225,4 +224,4 @@ Skipped and failed results include an `error` explanation. Discovery errors and 
 
 See [Contributing](CONTRIBUTING.md) for local checks, smoke-test platforms, coverage policy, and release requirements. See [Security](SECURITY.md) for vulnerability reporting and repository security settings.
 
-Workflow badges show the status on `main`. The coverage badge shows the required minimum; measured coverage is published in each CI run's job summary and coverage artifact.
+Workflow badges show the status on `main`.

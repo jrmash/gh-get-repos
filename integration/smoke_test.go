@@ -7,14 +7,10 @@ package integration
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
-	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -98,7 +94,8 @@ func TestInstalledExtension(t *testing.T) {
 			before := snapshot(t, working)
 			planned := invoke(t, working, env, gh, append(args, "--dry-run")...)
 			assertPlanned(t, planned)
-			if after := snapshot(t, working); !reflect.DeepEqual(before, after) {
+			if after := snapshot(t, working); len(snapshotChanges(before, after)) != 0 {
+				diagnoseSnapshotChange(t, working, working, env, before, after)
 				t.Fatal("dry-run changed files or created the missing destination")
 			}
 			checkout := filepath.Join(destination, "boysenberry-repo-1")
@@ -128,7 +125,8 @@ func TestInstalledExtension(t *testing.T) {
 			command(t, checkout, env, "git", "reset", "--hard", "HEAD^")
 			before = snapshot(t, destination)
 			assertPlanned(t, invoke(t, working, env, gh, append(args, "--dry-run")...))
-			if after := snapshot(t, destination); !reflect.DeepEqual(before, after) {
+			if after := snapshot(t, destination); len(snapshotChanges(before, after)) != 0 {
+				diagnoseSnapshotChange(t, destination, checkout, env, before, after)
 				t.Fatal("dry-run changed an existing checkout, including its Git metadata")
 			}
 			updated := invoke(t, working, env, gh, args...)
@@ -212,31 +210,4 @@ func isolatedEnvironment(root, token string) []string {
 		"GH_PROMPT_DISABLED=1", "GH_NO_UPDATE_NOTIFIER=1", "GH_NO_EXTENSION_UPDATE_NOTIFIER=1",
 		"GIT_CONFIG_GLOBAL="+filepath.Join(root, "empty-git-config"), "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0", "NO_COLOR=1",
 	)
-}
-
-func snapshot(t *testing.T, root string) map[string]string {
-	t.Helper()
-	result := map[string]string{}
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		var contents []byte
-		if !entry.IsDir() {
-			contents, err = os.ReadFile(path)
-			if err != nil {
-				return err
-			}
-		}
-		result[path] = fmt.Sprintf("%s %d %x", info.Mode(), info.ModTime().UnixNano(), sha256.Sum256(contents))
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return result
 }
