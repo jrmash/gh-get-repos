@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -399,7 +400,7 @@ func TestConfigurationErrors(t *testing.T) {
 	cwd, global, values := fixture(t)
 	file := filepath.Join(global, "get-repos.yml")
 	write(t, file, "unknown: bad\n")
-	if _, err := Load(cwd, env(values), nil); err == nil || !strings.Contains(err.Error(), file) {
+	if _, err := Load(cwd, env(values), nil); err == nil || !strings.Contains(err.Error(), strconv.Quote(file)) {
 		t.Fatalf("missing file provenance: %v", err)
 	}
 	write(t, file, "archived: invalid\n")

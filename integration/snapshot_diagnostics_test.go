@@ -4,11 +4,49 @@ package integration
 
 import (
 	"crypto/sha256"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestSnapshotUsesFreshHandleMetadata(t *testing.T) {
+	root := t.TempDir()
+	for _, directory := range []bool{false, true} {
+		name := "file"
+		if directory {
+			name = "directory"
+		}
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(root, name)
+			if directory {
+				if err := os.Mkdir(path, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.WriteFile(path, []byte("unchanged\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cached, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			mtime := cached.ModTime().Add(-time.Hour).Truncate(time.Second)
+			if err := os.Chtimes(path, mtime, mtime); err != nil {
+				t.Fatal(err)
+			}
+			// Simulate Windows returning the earlier cached directory entry.
+			record, err := readSnapshotEntry(path, fs.FileInfoToDirEntry(cached))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if record.ModTime != mtime.UnixNano() {
+				t.Fatalf("snapshot mtime = %d; want fresh time %d, not cached time %d", record.ModTime, mtime.UnixNano(), cached.ModTime().UnixNano())
+			}
+		})
+	}
+}
 
 func TestSnapshotLineEndingDiagnostics(t *testing.T) {
 	root := t.TempDir()

@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -50,24 +51,43 @@ func collectSnapshot(root string) (filesystemSnapshot, error) {
 		if walkErr != nil {
 			return walkErr
 		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
+		record, err := readSnapshotEntry(path, entry)
+		if err == nil {
+			result[path] = record
 		}
-		var contents []byte
-		if !entry.IsDir() {
-			contents, err = os.ReadFile(path)
-			if err != nil {
-				return err
-			}
-		}
-		// Keep the original metadata read before the original content read.
-		// Additional diagnostic fields use the bytes already read, so the
-		// before/dry-run/after observation sequence remains unchanged.
-		result[path] = recordSnapshot(info, contents)
-		return nil
+		return err
 	})
 	return result, err
+}
+
+func readSnapshotEntry(path string, entry fs.DirEntry) (fileSnapshot, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return fileSnapshot{}, err
+	}
+	defer file.Close()
+	// Windows directory enumeration can return stale modification times after
+	// Git operations. Stat the open handle for current metadata, and read file
+	// contents through that same handle. Keep strict timestamp comparisons.
+	info, err := file.Stat()
+	if err != nil {
+		return fileSnapshot{}, err
+	}
+	if entry.Type()&fs.ModeSymlink != 0 {
+		// Preserve the link's type and metadata rather than its target's.
+		info, err = entry.Info()
+		if err != nil {
+			return fileSnapshot{}, err
+		}
+	}
+	var contents []byte
+	if !entry.IsDir() {
+		contents, err = io.ReadAll(file)
+		if err != nil {
+			return fileSnapshot{}, err
+		}
+	}
+	return recordSnapshot(info, contents), nil
 }
 
 func recordSnapshot(info fs.FileInfo, contents []byte) fileSnapshot {

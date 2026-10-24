@@ -191,8 +191,9 @@ func TestRunMissingExecutables(t *testing.T) {
 	}
 	t.Setenv("GH_PATH", filepath.Join(t.TempDir(), "not-an-executable"))
 	_, err := (ProcessRunner{}).Run(context.Background(), "gh")
-	var pathError *os.PathError
-	if err == nil || !errors.As(err, &pathError) {
+	// Unix reports a missing explicit path through os.PathError; Windows can
+	// reject it during executable lookup with exec.ErrNotFound instead.
+	if !errors.Is(err, os.ErrNotExist) && !errors.Is(err, exec.ErrNotFound) {
 		t.Fatalf("missing GH_PATH did not preserve process error: %v", err)
 	}
 }
