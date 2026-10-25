@@ -2,8 +2,24 @@ name: Build and Test
 
 on:
   pull_request:
+    paths:
+      - '**/*.go'
+      - '**/testdata/**'
+      - '.gitattributes'
+      - '.github/workflows/build-test.yml'
+      - 'go.*'
+      - 'scripts/**'
+      - 'vendor/**'
   push:
     branches: [main, next]
+    paths:
+      - '**/*.go'
+      - '**/testdata/**'
+      - '.gitattributes'
+      - '.github/workflows/build-test.yml'
+      - 'go.*'
+      - 'scripts/**'
+      - 'vendor/**'
   workflow_dispatch:
 
 permissions:

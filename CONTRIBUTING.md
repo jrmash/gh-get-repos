@@ -19,7 +19,7 @@ Hook repositories are pinned to commit SHAs. Update them while preserving hash p
 pre-commit autoupdate --freeze
 ```
 
-All validation workflows run on pull requests, pushes to `main` and `next`, and manual dispatch.
+Validation workflows support pull requests, pushes to `main` and `next`, and manual dispatch. Native path filters limit build/test runs to Go inputs, test fixtures, the CI helper, Git attributes, and the build workflow. Code checks run for Go inputs and workflow or action changes. Markdown checks run for documentation, lint/link configuration, ignore rules, and linked workflow or release configuration files. Manual runs bypass path filters, and scheduled security scans still run weekly.
 
 The [Execute pre-commit workflow](.github/workflows/execute-pre-commit.yml) runs the same hooks against all tracked files. It sets up Python and Go and uses the SHA-pinned pre-commit Action to run the hooks and report formatting changes as a failing check with a diff.
 
