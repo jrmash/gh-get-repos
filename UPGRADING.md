@@ -61,4 +61,4 @@ The Bash environment names remain supported. The shorter names introduced during
 
 Platform-specific release binaries replace the Bash script and require no Go or Bash installation. GitHub CLI and Git remain required; source builds also need the Go version specified in `go.mod`. See [Installation](README.md#installation) for supported tool versions and installation or upgrade commands.
 
-The smoke-test workflow is configured to install and exercise the extension on Linux, macOS, and Windows, each on x64 and ARM64. It covers live discovery, dry runs, cloning, and updating. Release publishing requires this workflow, the automated test suite, and vulnerability checks to pass.
+Installation smoke tests exercise the extension on Linux, macOS, and Windows, each on x64 and ARM64. They cover live discovery, dry runs, cloning, and updating. Smoke tests, the automated test suite, and security checks run before release PRs are merged.

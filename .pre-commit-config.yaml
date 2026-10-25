@@ -1,9 +1,10 @@
 fail_fast: true
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # frozen: v6.0.0
     hooks:
       - id: check-case-conflict
+      - id: check-json
       - id: check-merge-conflict
       - id: check-symlinks
       - id: check-yaml
@@ -14,32 +15,13 @@ repos:
       - id: no-commit-to-branch
         args: [--branch, main]
       - id: trailing-whitespace
-  - repo: local
+  - repo: https://github.com/TekWizely/pre-commit-golang
+    rev: f298c082154b2cb239fac06a4f452368e66e66dd # frozen: v1.0.0-rc.4
     hooks:
-      - id: gofmt
-        name: Format Go files
-        entry: gofmt -w
-        language: system
-        types: [go]
-        require_serial: true
+      - id: go-fmt
+        args: [-w]
       - id: go-mod-tidy
-        name: Check Go module metadata
-        entry: go mod tidy -diff
-        language: system
+        args: [-diff]
         files: '(^go\.(mod|sum)$|\.go$)'
-        pass_filenames: false
-        require_serial: true
-      - id: go-vet
-        name: Vet Go packages
-        entry: go vet ./...
-        language: system
+      - id: go-vet-mod
         files: '(^go\.(mod|sum)$|\.go$)'
-        pass_filenames: false
-        require_serial: true
-      - id: go-test
-        name: Test Go packages
-        entry: go test ./...
-        language: system
-        files: '(^go\.(mod|sum)$|\.go$)'
-        pass_filenames: false
-        require_serial: true

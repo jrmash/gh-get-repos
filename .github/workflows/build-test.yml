@@ -1,0 +1,61 @@
+name: Build and Test
+
+on:
+  pull_request:
+  push:
+    branches: [main, next]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Build and Test (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      CGO_ENABLED: ${{ matrix.race && '1' || '0' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-15, goos: darwin, goarch: arm64, race: true }
+          - { os: macos-15-intel, goos: darwin, goarch: amd64, race: true }
+          - { os: ubuntu-24.04, goos: linux, goarch: amd64, race: true }
+          - { os: ubuntu-24.04-arm, goos: linux, goarch: arm64, race: true }
+          - { os: windows-11-arm, goos: windows, goarch: arm64, race: false }
+          - { os: windows-2025, goos: windows, goarch: amd64, race: true }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Setup
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - name: Build
+        run: go build ./...
+      - name: Test with Coverage
+        if: ${{ !matrix.race }}
+        run: go test -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./...
+      - name: Test with Coverage and Race Detection
+        if: matrix.race
+        run: go test -race -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./...
+      - name: Upload Coverage
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage-${{ matrix.goos }}-${{ matrix.goarch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: coverage.out
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Verify 90% Coverage
+        run: ${{ runner.os == 'Windows' && 'python' || 'python3' }} scripts/check.py coverage coverage.out 90
+      - name: Verify Extension
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GHGR_SMOKE_GOOS: ${{ matrix.goos }}
+          GHGR_SMOKE_GOARCH: ${{ matrix.goarch }}
+        run: go test -tags smoke -count=1 -v -timeout=15m ./integration

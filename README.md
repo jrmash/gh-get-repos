@@ -1,9 +1,8 @@
 # gh get-repos
 
-[![CI](https://github.com/jrmash/gh-get-repos/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jrmash/gh-get-repos/actions/workflows/ci.yml?query=branch%3Amain)
-[![Smoke](https://github.com/jrmash/gh-get-repos/actions/workflows/smoke.yml/badge.svg?branch=main)](https://github.com/jrmash/gh-get-repos/actions/workflows/smoke.yml?query=branch%3Amain)
-[![CodeQL](https://github.com/jrmash/gh-get-repos/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/jrmash/gh-get-repos/actions/workflows/codeql.yml?query=branch%3Amain)
-[![Vulnerabilities](https://github.com/jrmash/gh-get-repos/actions/workflows/vulnerabilities.yml/badge.svg?branch=main)](https://github.com/jrmash/gh-get-repos/actions/workflows/vulnerabilities.yml?query=branch%3Amain)
+[![Build and test](https://github.com/jrmash/gh-get-repos/actions/workflows/build-test.yml/badge.svg?branch=main)](https://github.com/jrmash/gh-get-repos/actions/workflows/build-test.yml?query=branch%3Amain)
+[![Code checks](https://github.com/jrmash/gh-get-repos/actions/workflows/check-code.yml/badge.svg?branch=main)](https://github.com/jrmash/gh-get-repos/actions/workflows/check-code.yml?query=branch%3Amain)
+[![Markdown](https://github.com/jrmash/gh-get-repos/actions/workflows/check-md.yml/badge.svg?branch=main)](https://github.com/jrmash/gh-get-repos/actions/workflows/check-md.yml?query=branch%3Amain)
 
 Clone or update every accessible GitHub repository owned by a user or organization, with filters and predictable directory layouts.
 
