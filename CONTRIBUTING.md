@@ -70,6 +70,8 @@ All third-party Actions are pinned to full commit SHAs with readable version com
 
 The [Check Markdown workflow](.github/workflows/check-md.yml) runs markdownlint for Markdown structure and style, and Lychee for local and external links. Long prose lines and table rows are allowed. GitHub workflow status URLs are excluded from link checking because new workflows are registered after they reach the default branch.
 
+For the generated changelog, markdownlint allows up to two consecutive blank lines and repeated headings under different release versions. Duplicate headings within the same release section still fail.
+
 With `markdownlint-cli2` and `lychee` installed, run the same checks locally:
 
 ```sh
@@ -102,7 +104,7 @@ The draft, upload, and publish sequence supports [immutable releases](https://do
 
 Release history starts after the final Bash commit. Release Please maintains `.release-please-manifest.json` after the first release. The stable configuration uses the prerelease versioning strategy with prereleases disabled so a promoted candidate becomes the corresponding stable version, such as `1.0.0-rc.2` to `1.0.0`. Subsequent stable releases follow Conventional Commits. The prerelease configuration starts each new candidate series at `rc.1` and increments the candidate number for later releases.
 
-Release Please maintains `CHANGELOG.md` automatically. The `extra-files` setting updates the annotated installation example below. Release binaries receive the tag through build flags; local source builds continue to report `dev`.
+Release Please creates `CHANGELOG.md` for the first release and maintains it automatically. The `extra-files` setting updates the annotated installation example below. Release binaries receive the tag through build flags; local source builds continue to report `dev`.
 
 Enable **Allow GitHub Actions to create and approve pull requests** in repository settings. The workflow uses the built-in `GITHUB_TOKEN`. Publishing runs in the same workflow and does not rely on bot-created tags triggering another run.
 

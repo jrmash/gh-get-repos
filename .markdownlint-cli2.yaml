@@ -2,3 +2,13 @@ gitignore: true
 config:
   # Keep prose and tables unwrapped in the source.
   MD013: false
+overrides:
+  - filter: [CHANGELOG.md]
+    combine: merge
+    config:
+      # Match Release Please's generated spacing.
+      MD012:
+        maximum: 2
+      # Release versions can repeat headings such as Features and Bug Fixes.
+      MD024:
+        siblings_only: true
