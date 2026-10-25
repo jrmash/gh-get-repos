@@ -2,8 +2,24 @@ name: Check Markdown
 
 on:
   pull_request:
+    paths:
+      - '**/*.markdown'
+      - '**/*.md'
+      - '.github/workflows/**'
+      - '.gitignore'
+      - '.markdownlint*'
+      - '.release-please-config*.json'
+      - 'lychee.toml'
   push:
     branches: [main, next]
+    paths:
+      - '**/*.markdown'
+      - '**/*.md'
+      - '.github/workflows/**'
+      - '.gitignore'
+      - '.markdownlint*'
+      - '.release-please-config*.json'
+      - 'lychee.toml'
   workflow_dispatch:
 
 permissions:
