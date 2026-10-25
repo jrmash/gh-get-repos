@@ -1,0 +1,4 @@
+gitignore: true
+config:
+  # Keep prose and tables unwrapped in the source.
+  MD013: false

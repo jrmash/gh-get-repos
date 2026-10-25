@@ -1,10 +1,24 @@
 version: 2
-
 updates:
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    commit-message:
-      prefix: "ci"
-      include: "scope"
+  - package-ecosystem: gomod
+    directory: /
     schedule:
-      interval: "daily"
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: America/Los_Angeles
+    open-pull-requests-limit: 10
+    groups:
+      go-compatible:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: America/Los_Angeles
+    open-pull-requests-limit: 10
+    groups:
+      actions-compatible:
+        update-types: [minor, patch]

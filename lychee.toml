@@ -1,0 +1,6 @@
+timeout = 20
+max_retries = 2
+retry_wait_time = 2
+
+# Workflow URLs become available after the workflows reach the default branch.
+exclude = ['^https://github\.com/jrmash/gh-get-repos/actions/workflows/']

@@ -1,0 +1,70 @@
+name: Release PR
+
+on:
+  push:
+    branches: [main, next]
+  workflow_dispatch:
+
+concurrency:
+  cancel-in-progress: false
+  group: release-${{ github.ref }}
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: Prepare Release
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || github.ref == 'refs/heads/next'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - name: Manage release PRs and draft releases
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: release
+        with:
+          target-branch: ${{ github.ref_name }}
+          config-file: >-
+            ${{ github.ref_name == github.event.repository.default_branch
+                && '.release-please-config.json'
+                || '.release-please-config-prerelease.json' }}
+          manifest-file: .release-please-manifest.json
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  publish:
+    name: Publish Release
+    needs: prepare
+    if: needs.prepare.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      attestations: write
+      contents: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - name: Compile Extension
+        uses: cli/gh-extension-precompile@76961aa3bd1123d0a6fd42d0a41aca0696937c39 # v2.2.0
+        with:
+          release_tag: ${{ needs.prepare.outputs.tag }}
+          draft_release: true
+          generate_attestations: true
+          go_build_options: '-ldflags=-s -w -X main.version=${{ needs.prepare.outputs.tag }}'
+          go_version_file: go.mod
+      - name: Publish Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_LATEST: ${{ github.ref_name == github.event.repository.default_branch }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        run: gh release edit "$RELEASE_TAG" --verify-tag --draft=false --latest="$RELEASE_LATEST"
