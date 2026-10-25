@@ -10,8 +10,3 @@
 ### Features
 
 * Rewrite Project in Go ([#10](https://github.com/jrmash/gh-get-repos/issues/10)) ([ecf15bc](https://github.com/jrmash/gh-get-repos/commit/ecf15bc56316009773686c9281b1b5dd69a3b0ab))
-
-## Changelog
-
-Release Please maintains the versioned release notes in this file. See
-[Upgrading](UPGRADING.md) for migration details from the Bash version.
