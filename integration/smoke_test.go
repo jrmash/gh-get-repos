@@ -81,16 +81,25 @@ func TestInstalledExtension(t *testing.T) {
 		t.Fatalf("installed extension version = %q; want gh get-repos smoke", version)
 	}
 	help := command(t, working, env, gh, "get-repos", "--help")
-	for _, flag := range []string{"--dry-run", "--max-repos", "--mode", "--format"} {
+	for _, flag := range []string{"--dry-run", "--max-repos", "--mode", "--format", "--sort", "--safe-mode", "--fork-upstream", "--fail-on-skip"} {
 		if !strings.Contains(help, flag) {
 			t.Fatalf("installed extension help omits %s", flag)
 		}
 	}
 
+	for _, order := range []string{"pushed", "updated"} {
+		t.Run("sort="+order, func(t *testing.T) {
+			planned := invoke(t, working, env, gh, "get-repos", fixtureOwner, "--archived=any", "--forks=any", "--visibility=public", "--sort="+order, "--max-repos=1", "--dry-run", "--format=json")
+			if !planned.DryRun || planned.Owner != fixtureOwner || planned.Summary != (cli.Summary{Selected: 1, Planned: 1}) || len(planned.Results) != 1 || planned.Results[0].Status != "planned" || !strings.HasPrefix(planned.Results[0].Repository, fixtureOwner+"/") {
+				t.Fatalf("invalid %s discovery: %+v", order, planned)
+			}
+		})
+	}
+
 	for _, mode := range []string{"standard", "worktree"} {
 		t.Run(mode, func(t *testing.T) {
 			destination := filepath.Join(working, mode)
-			args := []string{"get-repos", fixtureOwner, "--archived", "any", "--forks", "any", "--visibility", "public", "--max-repos", "1", "--format", "json", "--mode", mode, "--path", destination}
+			args := []string{"get-repos", fixtureOwner, "--archived", "any", "--forks", "any", "--visibility", "public", "--sort", "name", "--max-repos", "1", "--format", "json", "--mode", mode, "--path", destination}
 			before := snapshot(t, working)
 			planned := invoke(t, working, env, gh, append(args, "--dry-run")...)
 			assertPlanned(t, planned)

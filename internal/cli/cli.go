@@ -109,7 +109,8 @@ func newCommand(o Options) *cobra.Command {
 		Long: "Clone or update all matching repositories owned by a GitHub user or organization.\n\n" +
 			"Configuration: flags > GHGR_* > ./.gh-get-repos.yml > <gh-config-dir>/get-repos.yml > defaults.\n" +
 			"Owner defaults to GHGR_OWNER, configuration, or the authenticated user.\n" +
-			"Updates switch clean checkouts to the default branch and fast-forward only.",
+			"Safe mode switches clean checkouts to the default branch and fast-forwards only.\n" +
+			"Use --safe-mode=false to update with Git's configured pull behavior.",
 		Example:           "  gh get-repos octo-org --path ~/src --mode worktree\n  gh get-repos --language Go --topic cli,tools\n  gh get-repos octocat --format json",
 		Args:              cobra.MaximumNArgs(1),
 		Version:           o.Version,
@@ -125,10 +126,14 @@ func newCommand(o Options) *cobra.Command {
 	flags.String("forks", "exclude", "Forked repositories: any|exclude|only")
 	flags.String("format", "human", "Output format: human|json|yaml")
 	flags.String("mode", "standard", "Layout: standard (<repo>)|worktree (<repo>/base)")
+	flags.String("sort", "pushed", "Repository order: pushed|updated (newest first)|name (ascending)")
+	flags.Bool("safe-mode", true, "Skip unsafe checkouts and fast-forward only; false uses Git's checkout/pull behavior")
+	flags.Bool("fork-upstream", true, "Add the parent upstream remote when cloning a fork")
+	flags.Bool("fail-on-skip", true, "Return exit code 1 when a repository is skipped")
 	flags.StringP("visibility", "v", "any", "Repository visibility: any|internal|private|public")
 	flags.StringP("language", "l", "", "Primary language name (case insensitive; default: no filter)")
 	flags.StringSliceP("topic", "t", nil, "Required topics (CSV or repeat; all must match; default: no filter)")
-	flags.IntP("sleep", "s", 0, "Seconds between repository attempts: 0–99 (default: 0)")
+	flags.IntP("sleep", "s", 0, "Seconds between repository attempts: 0–300 (default: 0)")
 	flags.IntP("max-repos", "m", 0, "Maximum matching repositories: nonnegative integer (default: 0, unlimited)")
 	flags.StringP("path", "p", ".", "Destination directory")
 	flags.Bool("dry-run", false, "List selected repositories without cloning or updating (default: false)")
@@ -216,7 +221,7 @@ func run(ctx context.Context, cfg settings.Config, o Options) (Document, int) {
 	if !start("Discovering repositories for " + account) {
 		return doc, 1
 	}
-	owner, repos, err := github.Discover(ctx, o.Runner, doc.Host, cfg.Owner)
+	owner, repos, err := github.Discover(ctx, o.Runner, doc.Host, cfg.Owner, cfg.Sort)
 	progressOK := stop()
 	if err != nil {
 		doc.Error = err.Error()
@@ -284,7 +289,7 @@ func run(ctx context.Context, cfg settings.Config, o Options) (Document, int) {
 		} else if o.Synchronize != nil {
 			result = o.Synchronize(ctx, r, path)
 		} else {
-			synchronizer := syncgit.Synchronizer{Runner: o.Runner, Progress: func(stage string) { activity.Update(label(stage)) }}
+			synchronizer := syncgit.Synchronizer{Runner: o.Runner, SafeMode: cfg.SafeMode, ForkUpstream: cfg.ForkUpstream, Progress: func(stage string) { activity.Update(label(stage)) }}
 			result = synchronizer.Sync(ctx, r, path)
 		}
 		progressOK = stop()
@@ -325,7 +330,7 @@ func run(ctx context.Context, cfg settings.Config, o Options) (Document, int) {
 		doc.Error = "interrupted"
 		return doc, 130
 	}
-	if doc.Summary.Skipped+doc.Summary.Failed > 0 {
+	if doc.Summary.Failed > 0 || cfg.FailOnSkip && doc.Summary.Skipped > 0 {
 		return doc, 1
 	}
 	return doc, 0

@@ -70,8 +70,8 @@ func TestHumanOutputAlignedTableSnapshot(t *testing.T) {
 	if err := render(&out, doc, "human", false, false); err != nil {
 		t.Fatal(err)
 	}
-	want := "+ jrmash/bfl" + strings.Repeat(" ", 40) + "cloned   \n" +
-		"+ jrmash/perl-Dist-Zilla-PluginBundle-Author-JRMASH updated  \n" +
+	want := "+ jrmash/bfl" + strings.Repeat(" ", 40) + "cloned\n" +
+		"+ jrmash/perl-Dist-Zilla-PluginBundle-Author-JRMASH updated\n" +
 		"+ jrmash/terramate-component-library" + strings.Repeat(" ", 16) + "unchanged\n" +
 		"3 selected · 1 cloned · 1 updated · 1 unchanged · 0 skipped · 0 failed\n"
 	if out.String() != want {

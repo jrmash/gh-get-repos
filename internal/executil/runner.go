@@ -80,7 +80,7 @@ func gitOperation(args []string) bool {
 		switch args[index] {
 		case "-C", "-c":
 			index++
-		case "fetch", "switch", "merge":
+		case "fetch", "switch", "merge", "checkout", "pull":
 			return true
 		default:
 			return false

@@ -6,17 +6,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/jrmash/gh-get-repos/internal/executil"
 	"github.com/jrmash/gh-get-repos/internal/settings"
 )
 
-const query = `query GetRepositories($owner: String!, $endCursor: String) {
+const query = `query GetRepositories($owner: String!, $endCursor: String, $sortField: RepositoryOrderField!, $sortDirection: OrderDirection!) {
   repositoryOwner(login: $owner) {
     login
-    repositories(first: 100, after: $endCursor, ownerAffiliations: [OWNER], orderBy: {field: NAME, direction: ASC}) {
+    repositories(first: 100, after: $endCursor, ownerAffiliations: [OWNER], orderBy: {field: $sortField, direction: $sortDirection}) {
       nodes {
         id name nameWithOwner owner { login } url sshUrl
         isArchived isFork isEmpty visibility
@@ -75,7 +74,19 @@ type page struct {
 
 // Discover returns a canonical owner and its complete repository set. It never
 // returns partial results following a command, GraphQL, or pagination error.
-func Discover(ctx context.Context, runner executil.Runner, host, owner string) (string, []Repository, error) {
+// Results preserve GitHub's requested order, including across pages and duplicates.
+func Discover(ctx context.Context, runner executil.Runner, host, owner, order string) (string, []Repository, error) {
+	field, direction := "", "DESC"
+	switch order {
+	case "pushed":
+		field = "PUSHED_AT"
+	case "updated":
+		field = "UPDATED_AT"
+	case "name":
+		field, direction = "NAME", "ASC"
+	default:
+		return "", nil, fmt.Errorf("invalid repository sort %q", order)
+	}
 	if owner == "" {
 		login, err := runner.Run(ctx, "gh", "api", "user", "--hostname", host, "--jq", ".login")
 		if err != nil {
@@ -86,7 +97,7 @@ func Discover(ctx context.Context, runner executil.Runner, host, owner string) (
 	if !validName(owner) {
 		return "", nil, fmt.Errorf("invalid GitHub owner %q", owner)
 	}
-	output, err := runner.Run(ctx, "gh", "api", "graphql", "--paginate", "--slurp", "--hostname", host, "--raw-field", "owner="+owner, "--raw-field", "query="+query)
+	output, err := runner.Run(ctx, "gh", "api", "graphql", "--paginate", "--slurp", "--hostname", host, "--raw-field", "owner="+owner, "--raw-field", "sortField="+field, "--raw-field", "sortDirection="+direction, "--raw-field", "query="+query)
 	if err != nil {
 		return "", nil, fmt.Errorf("list repositories: %w", err)
 	}
@@ -126,9 +137,6 @@ func Discover(ctx context.Context, runner executil.Runner, host, owner string) (
 			}
 		}
 	}
-	sort.Slice(repositories, func(i, j int) bool {
-		return strings.ToLower(repositories[i].Name) < strings.ToLower(repositories[j].Name)
-	})
 	return canonical, repositories, nil
 }
 

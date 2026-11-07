@@ -1,4 +1,4 @@
-// Package syncgit safely clones and fast-forwards repository checkouts.
+// Package syncgit clones and updates repository checkouts with optional safeguards.
 package syncgit
 
 import (
@@ -37,12 +37,15 @@ type Result struct {
 
 // Synchronizer delegates Git and GitHub CLI commands to Runner.
 type Synchronizer struct {
-	Runner   executil.Runner
-	Progress func(string)
+	Runner       executil.Runner
+	Progress     func(string)
+	SafeMode     bool
+	ForkUpstream bool
 }
 
-// Sync clones an absent or empty path, or safely updates an existing checkout.
-// It never removes a destination, discards changes, or rewrites local commits.
+// Sync clones an absent or empty path, or updates a validated existing checkout.
+// SafeMode skips local changes and preserves local commits with fast-forward-only
+// updates. Otherwise, checkout and pull follow the user's Git configuration.
 func (s Synchronizer) Sync(ctx context.Context, repo Repository, path string) Result {
 	result := Result{Repository: repo.Owner + "/" + repo.Name, Path: path}
 	finish := func(status, reason string) Result {
@@ -90,7 +93,11 @@ func (s Synchronizer) Sync(ctx context.Context, repo Repository, path string) Re
 			return fail(fmt.Errorf("create parent directory: %w", err))
 		}
 		s.progress("Cloning")
-		_, err := s.Runner.Run(ctx, "gh", "repo", "clone", repo.Host+"/"+repo.Owner+"/"+repo.Name, absolute, "--no-upstream")
+		args := []string{"repo", "clone", repo.Host + "/" + repo.Owner + "/" + repo.Name, absolute}
+		if !s.ForkUpstream {
+			args = append(args, "--no-upstream")
+		}
+		_, err := s.Runner.Run(ctx, "gh", args...)
 		if err != nil {
 			message := operationError("clone failed", err, repo).Error()
 			if _, remainingErr := os.Lstat(absolute); remainingErr == nil {
@@ -118,6 +125,13 @@ func (s Synchronizer) Sync(ctx context.Context, repo Repository, path string) Re
 	}
 	if err := verifyOrigin(origin, repo); err != nil {
 		return fail(err)
+	}
+	if !s.SafeMode && !repo.Empty {
+		status, err := s.pull(repo, git)
+		if err != nil {
+			return fail(err)
+		}
+		return finish(status, "")
 	}
 	gitDir, err := git("rev-parse", "--absolute-git-dir")
 	if err != nil {
@@ -224,6 +238,55 @@ func (s Synchronizer) Sync(ctx context.Context, repo Repository, path string) Re
 		return finish("updated", "")
 	}
 	return finish("unchanged", "")
+}
+
+// pull deliberately leaves merge/rebase, fetch scope, submodules, and working
+// tree handling to Git. A failed checkout always stops before pull is attempted.
+func (s Synchronizer) pull(repo Repository, git func(...string) (string, error)) (string, error) {
+	if repo.DefaultBranch == "" {
+		return "", errors.New("repository has no default branch")
+	}
+	if _, err := git("check-ref-format", "--branch", repo.DefaultBranch); err != nil {
+		return "", fmt.Errorf("invalid default branch: %w", err)
+	}
+	branch, err := git("symbolic-ref", "--quiet", "--short", "HEAD")
+	if err != nil && exitCode(err) != 1 {
+		return "", fmt.Errorf("inspect current branch: %w", err)
+	}
+	before, err := git("rev-parse", "--verify", "--quiet", "HEAD")
+	if err != nil && exitCode(err) != 1 {
+		return "", fmt.Errorf("inspect current commit: %w", err)
+	}
+	checkout := []string{"checkout", repo.DefaultBranch}
+	if _, err := git("show-ref", "--verify", "--quiet", "refs/heads/"+repo.DefaultBranch); err != nil {
+		if exitCode(err) != 1 {
+			return "", fmt.Errorf("inspect default branch: %w", err)
+		}
+		// Refresh origin only when creating the local branch. Existing branches
+		// use a single plain pull, including their configured upstream remote.
+		remote := "refs/remotes/origin/" + repo.DefaultBranch
+		s.progress("Fetching default branch")
+		if _, err := git("fetch", "origin", "+refs/heads/"+repo.DefaultBranch+":"+remote); err != nil {
+			return "", operationError("fetch default branch", err, repo)
+		}
+		checkout = []string{"checkout", "--track", "-b", repo.DefaultBranch, remote}
+	}
+	s.progress("Switching to default branch")
+	if _, err := git(checkout...); err != nil {
+		return "", fmt.Errorf("check out default branch: %w", err)
+	}
+	s.progress("Pulling default branch")
+	if _, err := git("pull"); err != nil {
+		return "", operationError("pull default branch", err, repo)
+	}
+	after, err := git("rev-parse", "--verify", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("inspect updated commit: %w", err)
+	}
+	if branch != repo.DefaultBranch || before != after {
+		return "updated", nil
+	}
+	return "unchanged", nil
 }
 
 func (s Synchronizer) progress(message string) {
