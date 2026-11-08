@@ -6,7 +6,7 @@
       "release-type": "go",
       "extra-files": ["CONTRIBUTING.md"],
       "include-component-in-tag": false,
-      "initial-version": "1.0.0-rc.1",
+      "initial-version": "2.0.0-rc.1",
       "versioning": "prerelease",
       "prerelease": true,
       "prerelease-type": "rc.1",

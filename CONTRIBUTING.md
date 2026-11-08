@@ -85,8 +85,8 @@ lychee --no-progress '**/*.md'
 
 | Branch | Channel | Initial version | Configuration |
 | --- | --- | --- | --- |
-| `next` | Release candidates | `v1.0.0-rc.1` | [.release-please-config-prerelease.json](.release-please-config-prerelease.json) |
-| `main` (default) | Stable | `v1.0.0` | [.release-please-config.json](.release-please-config.json) |
+| `next` | Release candidates | `v2.0.0-rc.1` | [.release-please-config-prerelease.json](.release-please-config-prerelease.json) |
+| `main` (default) | Stable | `v2.0.0` | [.release-please-config.json](.release-please-config.json) |
 
 Both branches must contain the same pair of configuration files. Selecting a channel does not require editing either file. Manual runs are also limited to the default branch and `next`.
 
@@ -102,18 +102,18 @@ Failed PR checks block merging when branch protection is configured. Failed rele
 
 The draft, upload, and publish sequence supports [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases). If enabled in repository settings, published assets and tags cannot be replaced, including for RCs. Publish a new version to correct a binary; draft releases remain retryable.
 
-Release history starts after the final Bash commit. Release Please maintains `.release-please-manifest.json` after the first release. The stable configuration uses the prerelease versioning strategy with prereleases disabled so a promoted candidate becomes the corresponding stable version, such as `1.0.0-rc.2` to `1.0.0`. Subsequent stable releases follow Conventional Commits. The prerelease configuration starts each new candidate series at `rc.1` and increments the candidate number for later releases.
+Release history starts after the final Bash commit. The Go rewrite starts the V2 release line. The manifest starts empty so each channel uses its configured initial version; Release Please updates `.release-please-manifest.json` in release PRs. The stable configuration uses the prerelease versioning strategy with prereleases disabled so a promoted candidate becomes the corresponding stable version, such as `2.0.0-rc.2` to `2.0.0`. Subsequent stable releases follow Conventional Commits. The prerelease configuration starts each new candidate series at `rc.1` and increments the candidate number for later releases.
 
-Release Please creates `CHANGELOG.md` for the first release and maintains it automatically. The `extra-files` setting updates the annotated installation example below. Release binaries receive the tag through build flags; local source builds continue to report `dev`.
+Release Please populates `CHANGELOG.md` for the first release and maintains it automatically. The `extra-files` setting updates the annotated installation example below. Release binaries receive the tag through build flags; local source builds continue to report `dev`.
 
 Enable **Allow GitHub Actions to create and approve pull requests** in repository settings. The workflow uses the built-in `GITHUB_TOKEN`. Publishing runs in the same workflow and does not rely on bot-created tags triggering another run.
 
-To install the version represented by this branch, use its published tag:
+After the first release is published, install it using its tag:
 
 <!-- x-release-please-start-version -->
 
 ```sh
-gh extension install jrmash/gh-get-repos --pin v1.0.0-rc.1
+gh extension install jrmash/gh-get-repos --pin v2.0.0-rc.1
 gh get-repos --version
 ```
 
