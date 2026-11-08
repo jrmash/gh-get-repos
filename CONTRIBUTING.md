@@ -68,7 +68,7 @@ All third-party Actions are pinned to full commit SHAs with readable version com
 
 ## Markdown checks
 
-The [Check Markdown workflow](.github/workflows/check-md.yml) runs markdownlint for Markdown structure and style, and Lychee for local and external links. Long prose lines and table rows are allowed. GitHub workflow status URLs are excluded from link checking because new workflows are registered after they reach the default branch.
+The [Check Markdown workflow](.github/workflows/check-md.yml) runs markdownlint for Markdown structure and style, and Lychee for local and external links. Long prose lines and table rows are allowed. GitHub workflow status URLs are excluded from link checking because new workflows are registered after they reach the default branch. This repository's version-to-version comparison URLs are also excluded because Release Please generates changelog links before the new release tag exists. Branch comparisons, issue links, and commit links remain checked.
 
 For the generated changelog, markdownlint allows up to two consecutive blank lines and repeated headings under different release versions. Duplicate headings within the same release section still fail.
 
