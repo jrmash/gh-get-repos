@@ -63,7 +63,7 @@ func connection(page map[string]any) map[string]any {
 	return account(page)["repositories"].(map[string]any)
 }
 
-func TestDiscoverFetchesAllPagesAndSorts(t *testing.T) {
+func TestDiscoverFetchesAllPagesAndPreservesOrder(t *testing.T) {
 	var pages []map[string]any
 	for pageIndex := range 12 {
 		var repos []Repository
@@ -76,14 +76,14 @@ func TestDiscoverFetchesAllPagesAndSorts(t *testing.T) {
 	last := connection(pages[11])
 	last["nodes"] = append(last["nodes"].([]Repository), repository("repo-1199"))
 	runner := &fakeRunner{outputs: []string{encoded(t, pages...)}}
-	owner, repos, err := Discover(context.Background(), runner, "github.example", "example")
+	owner, repos, err := Discover(context.Background(), runner, "github.example", "example", "pushed")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if owner != "Example" || len(repos) != 1200 {
 		t.Fatalf("owner %q, %d repositories; want Example and 1,200", owner, len(repos))
 	}
-	if repos[0].Name != "repo-0000" || repos[1199].Name != "repo-1199" {
+	if repos[0].Name != "repo-1199" || repos[1199].Name != "repo-0000" {
 		t.Fatalf("first/last %q/%q", repos[0].Name, repos[len(repos)-1].Name)
 	}
 	if len(runner.calls) != 1 {
@@ -113,13 +113,51 @@ func TestDiscoverFetchesAllPagesAndSorts(t *testing.T) {
 
 func TestDiscoverAuthenticatedOwnerAndEmptyListing(t *testing.T) {
 	runner := &fakeRunner{outputs: []string{"  Example\n", encoded(t, envelope("Example", nil, false, ""))}}
-	owner, repos, err := Discover(context.Background(), runner, "github.example", "")
+	owner, repos, err := Discover(context.Background(), runner, "github.example", "", "pushed")
 	if err != nil || owner != "Example" || len(repos) != 0 || repos == nil {
 		t.Fatalf("got %q, %v, %v", owner, repos, err)
 	}
 	want := []string{"gh", "api", "user", "--hostname", "github.example", "--jq", ".login"}
 	if len(runner.calls) != 2 || !reflect.DeepEqual(runner.calls[0], want) {
 		t.Fatalf("unexpected commands: %v", runner.calls)
+	}
+}
+
+func TestDiscoverRequestsConfiguredOrder(t *testing.T) {
+	for _, tc := range []struct {
+		order, field, direction string
+		names                   []string
+	}{
+		{"pushed", "PUSHED_AT", "DESC", []string{"zeta", "alpha", "middle"}},
+		{"updated", "UPDATED_AT", "DESC", []string{"middle", "zeta", "alpha"}},
+		{"name", "NAME", "ASC", []string{"alpha", "middle", "zeta"}},
+	} {
+		t.Run(tc.order, func(t *testing.T) {
+			runner := &fakeRunner{outputs: []string{encoded(t,
+				envelope("Example", []Repository{repository(tc.names[0]), repository(tc.names[1])}, true, "first"),
+				envelope("Example", []Repository{repository(tc.names[0]), repository(tc.names[2])}, false, "last"),
+			)}}
+			_, repos, err := Discover(context.Background(), runner, "github.example", "Example", tc.order)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			for _, repo := range repos {
+				got = append(got, repo.Name)
+			}
+			if !slices.Equal(got, tc.names) {
+				t.Fatalf("API order changed: got %v, want %v", got, tc.names)
+			}
+			for _, arg := range []string{"sortField=" + tc.field, "sortDirection=" + tc.direction, "query=" + query} {
+				if !slices.Contains(runner.calls[0], arg) {
+					t.Errorf("missing %q from %v", arg, runner.calls[0])
+				}
+			}
+		})
+	}
+	runner := &fakeRunner{}
+	if _, _, err := Discover(context.Background(), runner, "github.example", "Example", "invalid"); err == nil || len(runner.calls) != 0 {
+		t.Fatalf("invalid sort reached API: %v, %v", err, runner.calls)
 	}
 }
 
@@ -130,7 +168,7 @@ func TestDiscoverMetadataAndCaseInsensitiveIdentity(t *testing.T) {
 	repo.DefaultBranchRef, repo.PrimaryLanguage = nil, nil
 	repo.Visibility = "INTERNAL"
 	runner := &fakeRunner{outputs: []string{encoded(t, envelope("Example", []Repository{repo}, false, "last"))}}
-	_, repos, err := Discover(context.Background(), runner, "github.example", "EXAMPLE")
+	_, repos, err := Discover(context.Background(), runner, "github.example", "EXAMPLE", "pushed")
 	if err != nil || !reflect.DeepEqual(repos, []Repository{repo}) {
 		t.Fatalf("metadata changed: %v, %v", repos, err)
 	}
@@ -139,7 +177,7 @@ func TestDiscoverMetadataAndCaseInsensitiveIdentity(t *testing.T) {
 func TestDiscoverAllowsLegalRepositoryNameWithLeadingHyphen(t *testing.T) {
 	repo := repository("-legal")
 	runner := &fakeRunner{outputs: []string{encoded(t, envelope("Example", []Repository{repo}, false, "last"))}}
-	_, repos, err := Discover(context.Background(), runner, "github.example", "Example")
+	_, repos, err := Discover(context.Background(), runner, "github.example", "Example", "pushed")
 	if err != nil || !reflect.DeepEqual(repos, []Repository{repo}) {
 		t.Fatalf("legal repository rejected: %v, %v", repos, err)
 	}
@@ -156,14 +194,14 @@ func TestDiscoverCommandErrorsAreWrappedAndNeverReturnPartialResults(t *testing.
 		{"listing", "Example", fakeRunner{outputs: []string{encoded(t, envelope("Example", []Repository{repository("repo")}, false, ""))}, errors: []error{failure}}, "list repositories"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			owner, repos, err := Discover(context.Background(), &tt.runner, "github.example", tt.owner)
+			owner, repos, err := Discover(context.Background(), &tt.runner, "github.example", tt.owner, "pushed")
 			if !errors.Is(err, failure) || !strings.Contains(err.Error(), tt.message) || owner != "" || repos != nil {
 				t.Fatalf("got %q, %v, %v", owner, repos, err)
 			}
 		})
 	}
 	runner := &fakeRunner{outputs: []string{"[{"}}
-	_, _, err := Discover(context.Background(), runner, "github.example", "Example")
+	_, _, err := Discover(context.Background(), runner, "github.example", "Example", "pushed")
 	var syntax *json.SyntaxError
 	if !errors.As(err, &syntax) {
 		t.Fatalf("JSON syntax error not preserved: %v", err)
@@ -174,14 +212,14 @@ func TestDiscoverRejectsInvalidOwnersBeforeListing(t *testing.T) {
 	for _, owner := range []string{"../escape", "a/b", `a\b`, "-R", ".", "..", "a b", "https://host/owner", "a\x00b"} {
 		t.Run(owner, func(t *testing.T) {
 			runner := &fakeRunner{}
-			_, _, err := Discover(context.Background(), runner, "github.example", owner)
+			_, _, err := Discover(context.Background(), runner, "github.example", owner, "pushed")
 			if err == nil || !strings.Contains(err.Error(), "invalid GitHub owner") || len(runner.calls) != 0 {
 				t.Fatalf("got %v, calls %v", err, runner.calls)
 			}
 		})
 	}
 	runner := &fakeRunner{outputs: []string{"../escape\n"}}
-	if _, _, err := Discover(context.Background(), runner, "github.example", ""); err == nil || len(runner.calls) != 1 {
+	if _, _, err := Discover(context.Background(), runner, "github.example", "", "pushed"); err == nil || len(runner.calls) != 1 {
 		t.Fatalf("invalid authenticated owner: %v, calls %v", err, runner.calls)
 	}
 }
@@ -212,7 +250,7 @@ func TestDiscoverRejectsBadResponsesAndPagination(t *testing.T) {
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			runner := &fakeRunner{outputs: []string{tt.output}}
-			owner, repos, err := Discover(context.Background(), runner, "github.example", "Example")
+			owner, repos, err := Discover(context.Background(), runner, "github.example", "Example", "pushed")
 			if err == nil || !strings.Contains(err.Error(), tt.message) || owner != "" || repos != nil {
 				t.Fatalf("got owner %q, repos %v, error %v; want %q", owner, repos, err, tt.message)
 			}
@@ -236,7 +274,7 @@ func TestDiscoverRejectsUnsafeOrMismatchedRepositoryIdentities(t *testing.T) {
 			repo := repository("repo")
 			change(&repo)
 			runner := &fakeRunner{outputs: []string{encoded(t, envelope("Example", []Repository{repository("valid"), repo}, false, ""))}}
-			owner, repos, err := Discover(context.Background(), runner, "github.example", "Example")
+			owner, repos, err := Discover(context.Background(), runner, "github.example", "Example", "pushed")
 			if err == nil || !strings.Contains(err.Error(), "invalid repository identity") || owner != "" || repos != nil {
 				t.Fatalf("got %q, %v, %v", owner, repos, err)
 			}

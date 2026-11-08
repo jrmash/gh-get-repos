@@ -16,44 +16,52 @@ import (
 	"strconv"
 	"strings"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // Config is the fully resolved and validated configuration for one invocation.
 type Config struct {
-	Owner      string
-	Archived   string
-	Forks      string
-	Format     string
-	Mode       string
-	Visibility string
-	Language   string
-	Topics     []string
-	Sleep      int
-	MaxRepos   int
-	Path       string
-	Verbose    bool
-	DryRun     bool
+	Owner        string
+	Archived     string
+	Forks        string
+	Format       string
+	Mode         string
+	Visibility   string
+	Language     string
+	Topics       []string
+	Sleep        int
+	MaxRepos     int
+	Path         string
+	Verbose      bool
+	DryRun       bool
+	Sort         string
+	SafeMode     bool
+	ForkUpstream bool
+	FailOnSkip   bool
 }
 
-var names = []string{"owner", "archived", "forks", "format", "mode", "visibility", "language", "topic", "sleep", "max-repos", "path", "verbose", "dry-run"}
+var names = []string{"owner", "archived", "forks", "format", "mode", "visibility", "language", "topic", "sleep", "max-repos", "path", "verbose", "dry-run", "sort", "safe-mode", "fork-upstream", "fail-on-skip"}
 
 // Environment names are ordered from fallback aliases to the canonical name.
 // Presence matters: an explicitly empty canonical value overrides an alias.
 var environmentNames = map[string][]string{
-	"owner":      {"GHGR_OWNER"},
-	"archived":   {"GHGR_ARCHIVED", "GHGR_OPT_ARCHIVED"},
-	"forks":      {"GHGR_FORKS", "GHGR_OPT_FORKS"},
-	"format":     {"GHGR_FORMAT", "GHGR_OPT_FORMAT"},
-	"mode":       {"GHGR_MODE", "GHGR_OPT_MODE"},
-	"visibility": {"GHGR_VISIBILITY", "GHGR_OPT_VISIBILITY"},
-	"language":   {"GHGR_LANGUAGE", "GHGR_OPT_LANGUAGE"},
-	"topic":      {"GHGR_TOPIC", "GHGR_OPT_TOPIC"},
-	"sleep":      {"GHGR_SLEEP", "GHGR_OPT_SLEEP"},
-	"max-repos":  {"GHGR_MAX_REPOS", "GHGR_OPT_LIMIT"},
-	"path":       {"GHGR_PATH", "GHGR_OPT_PATH"},
-	"verbose":    {"GHGR_VERBOSE", "GHGR_OPT_VERBOSE"},
-	"dry-run":    {"GHGR_DRY_RUN", "GHGR_OPT_DRY_RUN"},
+	"owner":         {"GHGR_OWNER"},
+	"archived":      {"GHGR_ARCHIVED", "GHGR_OPT_ARCHIVED"},
+	"forks":         {"GHGR_FORKS", "GHGR_OPT_FORKS"},
+	"format":        {"GHGR_FORMAT", "GHGR_OPT_FORMAT"},
+	"mode":          {"GHGR_MODE", "GHGR_OPT_MODE"},
+	"visibility":    {"GHGR_VISIBILITY", "GHGR_OPT_VISIBILITY"},
+	"language":      {"GHGR_LANGUAGE", "GHGR_OPT_LANGUAGE"},
+	"topic":         {"GHGR_TOPIC", "GHGR_OPT_TOPIC"},
+	"sleep":         {"GHGR_SLEEP", "GHGR_OPT_SLEEP"},
+	"max-repos":     {"GHGR_MAX_REPOS", "GHGR_OPT_LIMIT"},
+	"path":          {"GHGR_PATH", "GHGR_OPT_PATH"},
+	"verbose":       {"GHGR_VERBOSE", "GHGR_OPT_VERBOSE"},
+	"dry-run":       {"GHGR_DRY_RUN", "GHGR_OPT_DRY_RUN"},
+	"sort":          {"GHGR_SORT", "GHGR_OPT_SORT"},
+	"safe-mode":     {"GHGR_SAFE_MODE", "GHGR_OPT_SAFE_MODE"},
+	"fork-upstream": {"GHGR_FORK_UPSTREAM", "GHGR_OPT_FORK_UPSTREAM"},
+	"fail-on-skip":  {"GHGR_FAIL_ON_SKIP", "GHGR_OPT_FAIL_ON_SKIP"},
 }
 
 var ownerPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
@@ -86,6 +94,8 @@ func Load(cwd string, lookup func(string) (string, bool), overrides map[string]s
 		"language": {}, "topic": {list: true}, "sleep": {text: "0"},
 		"max-repos": {text: "0"}, "path": {text: cwd}, "verbose": {text: "false"},
 		"dry-run": {text: "false"},
+		"sort":    {text: "pushed"}, "safe-mode": {text: "true"},
+		"fork-upstream": {text: "true"}, "fail-on-skip": {text: "true"},
 	}
 	globalDir, err := configDir(lookup, runtime.GOOS, os.UserHomeDir)
 	if err != nil {
@@ -237,7 +247,7 @@ func decodeValue(key string, node *yaml.Node) (value, error) {
 			return value{}, fmt.Errorf("%s must be an integer: %w", key, err)
 		}
 		return value{text: strconv.Itoa(number)}, nil
-	case "verbose", "dry-run":
+	case "verbose", "dry-run", "safe-mode", "fork-upstream", "fail-on-skip":
 		if node.Kind != yaml.ScalarNode || node.Tag != "!!bool" {
 			return value{}, fmt.Errorf("%s must be a YAML boolean", key)
 		}
@@ -255,6 +265,7 @@ func resolve(values map[string]value, cwd string, lookup func(string) (string, b
 		Owner: values["owner"].text, Archived: values["archived"].text,
 		Forks: values["forks"].text, Format: values["format"].text, Mode: values["mode"].text,
 		Visibility: values["visibility"].text, Language: values["language"].text,
+		Sort: values["sort"].text,
 	}
 	invalid := func(key, reason string) error {
 		if source := values[key].source; source != "" {
@@ -272,6 +283,7 @@ func resolve(values map[string]value, cwd string, lookup func(string) (string, b
 		{"archived", "any|exclude|only"}, {"forks", "any|exclude|only"},
 		{"format", "human|json|yaml"}, {"mode", "standard|worktree"},
 		{"visibility", "any|internal|private|public"},
+		{"sort", "pushed|updated|name"},
 	} {
 		if !slices.Contains(strings.Split(rule.allowed, "|"), values[rule.key].text) {
 			return Config{}, invalid(rule.key, "must be one of "+rule.allowed)
@@ -279,8 +291,8 @@ func resolve(values map[string]value, cwd string, lookup func(string) (string, b
 	}
 	var err error
 	cfg.Sleep, err = strconv.Atoi(values["sleep"].text)
-	if err != nil || cfg.Sleep < 0 || cfg.Sleep > 99 {
-		return Config{}, invalid("sleep", "must be an integer from 0 to 99")
+	if err != nil || cfg.Sleep < 0 || cfg.Sleep > 300 {
+		return Config{}, invalid("sleep", "must be an integer from 0 to 300")
 	}
 	cfg.MaxRepos, err = strconv.Atoi(values["max-repos"].text)
 	if err != nil || cfg.MaxRepos < 0 {
@@ -293,6 +305,19 @@ func resolve(values map[string]value, cwd string, lookup func(string) (string, b
 	cfg.DryRun, err = strconv.ParseBool(values["dry-run"].text)
 	if err != nil {
 		return Config{}, invalid("dry-run", "must be a boolean")
+	}
+	for _, setting := range []struct {
+		key    string
+		target *bool
+	}{
+		{"safe-mode", &cfg.SafeMode},
+		{"fork-upstream", &cfg.ForkUpstream},
+		{"fail-on-skip", &cfg.FailOnSkip},
+	} {
+		*setting.target, err = strconv.ParseBool(values[setting.key].text)
+		if err != nil {
+			return Config{}, invalid(setting.key, "must be a boolean")
+		}
 	}
 	if topic := values["topic"]; topic.list {
 		cfg.Topics = topic.topics

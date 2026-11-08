@@ -17,33 +17,52 @@ Use `./gh-get-repos` when running a local build. A dry run still requires GitHub
 | Area | What changes |
 | --- | --- |
 | Repository limit | `--max-repos` / `-m` defaults to `0` (unlimited), replacing the Bash default of 10,000. A positive limit applies after filtering. Set `GHGR_OPT_LIMIT=10000` to keep the previous ceiling. |
-| Sleep | `--sleep` / `-s` accepts whole seconds from **0 to 99**. Higher values now fail. Sleep occurs between repository attempts, with no delay after the final repository or during dry runs. |
+| Sleep | `--sleep` / `-s` accepts whole seconds from **0 to 300**, defaulting to `0`. Higher values fail. Sleep occurs between repository attempts, with no delay after the final repository or during dry runs. |
 | Topics | Repeated or comma-separated topics must **all** match, ignoring case. Previously, repeating `--topic` kept only its final value. To retain that result, pass only the final topic. |
 | Parsing | Unknown options, invalid values, missing option arguments, and multiple owners now produce an error. Empty archived, fork, or visibility values are invalid; use `any` to disable those filters. Both `--option value` and `--option=value` are supported. |
 
-Repositories are now processed in case-insensitive name order. With a limit, the selected batch may therefore differ from the Bash version's listing order.
+Repositories are processed newest push first by default (`sort: pushed`), matching the Bash version's normal `gh repo list` ordering. The Bash version could switch to newest update first when certain filters invoked Search. Go uses the configured ordering consistently: choose `sort: updated` for update time or `sort: name` for ascending names. GitHub orders the listing, and local filtering preserves it without another sort. The repository limit applies to that filtered order.
 
 Discovery uses `gh api` pagination instead of `gh repo list`, then applies filters locally. Some `gh repo list` filters use GitHub Search, which can return at most 1,000 results. The paginated listing provides complete results beyond that ceiling. Discovery may take longer because every page must be read before processing, even with a small `--max-repos`.
+
+## Configuring V1-like behavior
+
+Set these defaults in global `get-repos.yml` or local `.gh-get-repos.yml` to use the Bash version's broader selection, standard layout, and Git-managed updates:
+
+```yaml
+archived: any
+forks: any
+max-repos: 10000
+mode: standard
+sort: pushed
+safe-mode: false
+fork-upstream: true
+verbose: true
+```
+
+These are ordinary settings and can be overridden individually. `safe-mode` defaults to `true`; disabling it checks out the GitHub default branch and runs plain `git pull`, honoring the branch's configured upstream and Git's merge/rebase, autostash, fetch, and submodule settings. Full command logs still go to stderr. Destination/origin validation, stopping after a failed checkout, and meaningful failure exit codes apply in both modes.
 
 ## Output and automation
 
 Human output now uses progress indicators, one result row per repository, and totals. Full Git operation output is available with `--verbose` and goes to stderr. `-v` continues to mean visibility. Scripts that parse the Bash version's headings or Git output should switch to `--format json` or `--format yaml`; structured stdout contains a single result document. Dry-run results use `planned` status and leave synchronization counters at zero.
 
-Failed or skipped repositories now make the command return `1`, even when the rest of the batch succeeds. Invalid arguments or configuration return `2`, and interruption returns `130`. The Bash version could return success after Git failures. Adjust automation that previously assumed a successful exit meant every repository was updated.
+Failed or skipped repositories make the command return `1` by default, even when the rest of the batch succeeds. Set `fail-on-skip: false` or pass `--fail-on-skip=false` to accept intentional skips while still reporting them and their counts. Actual failures remain nonzero. Invalid arguments or configuration return `2`, and interruption returns `130`. The Bash version could return success after Git failures. Adjust automation that previously assumed a successful exit meant every repository was updated.
 
 ## Changes to updates
 
-Updates switch clean checkouts to the GitHub default branch and fast-forward from `origin`. They preserve local commits and skip checkouts with:
+With the default `safe-mode: true`, updates switch clean checkouts to the GitHub default branch and fast-forward from `origin`. They preserve local commits and skip checkouts with:
 
 - Modified or untracked files, including dirty submodules.
 - A detached HEAD or an active Git operation.
 - A default branch that is ahead of or diverged from `origin`, or checked out in another worktree.
 
-Resolve these conditions and rerun the command. Automatic merge/rebase behavior configured for `git pull` is no longer used. A failed branch switch stops work on that repository; processing continues with the rest of the batch.
+Resolve these conditions and rerun the command, or use `--safe-mode=false` to let Git accept or reject the checkout and pull using its configuration. Configured merges can create commits and rebases can rewrite local commits. In both modes, a failed branch switch stops work on that repository; processing continues with the rest of the batch. A successful branch switch or HEAD change counts as updated; otherwise the checkout is unchanged.
 
 Destinations must be actual checkout roots with an `origin` identifying the selected GitHub repository. Symlink destinations, local mirror URLs, missing or unrelated origins, and incompatible layouts are rejected. Credential prompts are disabled, so configure authentication before running a batch.
 
-Only the default branch is fetched and updated. Other branches, new tags, and submodules are not refreshed; update them separately when needed. When forks are included, new clones do not automatically receive a parent `upstream` remote. Existing remotes are preserved.
+Safe mode fetches only the default branch. Other branches, new tags, and submodules are not refreshed; update them separately when needed or disable safe mode to follow Git's configured pull behavior. A missing local default branch is created with tracking from `origin` in either mode.
+
+When forks are included, new clones receive their parent `upstream` remote by default, matching normal `gh repo clone` behavior. GitHub CLI also selects the parent as its default repository. Set `fork-upstream: false` or pass `--fork-upstream=false` to omit the parent remote and keep the fork as GitHub CLI's default. This setting applies only to new clones; existing remotes are preserved.
 
 Empty GitHub repositories can now be cloned and recognized on later runs before their first commit.
 
@@ -56,6 +75,30 @@ The local file is read only from the invocation directory, not a parent director
 The Bash environment names remain supported. The shorter names introduced during development, such as `GHGR_LANGUAGE`, remain aliases; `GHGR_OPT_*` takes precedence when both are present. See [Configuration](README.md#configuration) for the full mapping, value types, and examples.
 
 `--mode worktree` adds normal clones at `<path>/<repository>/base` for sibling worktrees. Changing modes does not move existing checkouts; arrange the directories explicitly before switching an existing collection. Additional options include `--forks` for fork filtering and `--version` for version reporting.
+
+## Staying on the Bash version
+
+To stay on V1, install your own fork with the Bash branch as its default branch. The upstream [`release/v1` branch](https://github.com/jrmash/gh-get-repos/tree/release/v1) is frozen, unsupported source; maintainers of a fork own any subsequent changes.
+
+1. Fork the repository with all branches included. In GitHub's fork dialog, clear **Copy the default branch only**, or use:
+
+   ```sh
+   gh repo fork jrmash/gh-get-repos --default-branch-only=false --clone=false --remote=false
+   ```
+
+2. Keep the fork named `gh-get-repos` and make `release/v1` its default branch. Replace `YOUR_LOGIN` with the owner of your fork:
+
+   ```sh
+   gh repo edit YOUR_LOGIN/gh-get-repos --default-branch release/v1
+   ```
+
+3. If `get-repos` is already installed, remove that installation with `gh extension remove get-repos`. Then install your fork:
+
+   ```sh
+   gh extension install YOUR_LOGIN/gh-get-repos
+   ```
+
+The command remains `gh get-repos`. Installation uses your fork's Bash default branch, and future upstream Go releases do not change that installation. Keeping the repository name avoids extra changes: a renamed extension repository must start with `gh-` and contain a matching executable filename at its root. See GitHub CLI's [installation documentation](https://cli.github.com/manual/gh_extension_install) and [extension requirements](https://cli.github.com/manual/gh_extension).
 
 ## Installation and verification
 

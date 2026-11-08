@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +17,7 @@ import (
 	"github.com/jrmash/gh-get-repos/internal/settings"
 	"github.com/jrmash/gh-get-repos/internal/syncgit"
 	"github.com/rivo/uniseg"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 type fakeRunner func(context.Context, string, ...string) (string, error)
@@ -124,7 +125,7 @@ func TestBatchResultsContinueAndSleep(t *testing.T) {
 		return nil
 	}
 	code := Execute(context.Background(), []string{"Octo", "--mode=worktree", "--format=json", "--sleep=2"}, o)
-	if code != 1 || waits != 2 || strings.Join(synced, ",") != "alpha,middle,zeta" {
+	if code != 1 || waits != 2 || strings.Join(synced, ",") != "zeta,alpha,middle" {
 		t.Fatalf("code %d waits%d synced%v stderr%s", code, waits, synced, stderr)
 	}
 	var doc Document
@@ -207,6 +208,42 @@ func TestRepeatedTopicsAndFilters(t *testing.T) {
 		if doc.Summary.Selected != want {
 			t.Fatalf("args%v doc%+v", args, doc)
 		}
+	}
+}
+
+func TestSortConfigurationReachesDiscovery(t *testing.T) {
+	for _, tc := range []struct {
+		order, field, direction string
+	}{
+		{"", "PUSHED_AT", "DESC"},
+		{"updated", "UPDATED_AT", "DESC"},
+		{"name", "NAME", "ASC"},
+	} {
+		t.Run(tc.field, func(t *testing.T) {
+			o, out, stderr := fixture(t, "zeta", "alpha")
+			base := o.Runner
+			o.Runner = fakeRunner(func(ctx context.Context, name string, args ...string) (string, error) {
+				if name == "gh" && len(args) > 1 && args[1] == "graphql" {
+					for _, value := range []string{"sortField=" + tc.field, "sortDirection=" + tc.direction} {
+						if !slices.Contains(args, value) {
+							t.Fatalf("missing configured order %q: %v", value, args)
+						}
+					}
+				}
+				return base.Run(ctx, name, args...)
+			})
+			args := []string{"Octo", "--dry-run", "--format=json", "--max-repos=1"}
+			if tc.order != "" {
+				args = append(args, "--sort="+tc.order)
+			}
+			if code := Execute(context.Background(), args, o); code != 0 {
+				t.Fatal(code, stderr.String())
+			}
+			var doc Document
+			if err := json.Unmarshal(out.Bytes(), &doc); err != nil || len(doc.Results) != 1 || doc.Results[0].Repository != "Octo/zeta" {
+				t.Fatalf("API order was not preserved before limiting: %+v, %v", doc, err)
+			}
+		})
 	}
 }
 
@@ -355,6 +392,11 @@ func TestRenderStatusesAndOneLine(t *testing.T) {
 		if terminal && !strings.Contains(out.String(), "✗") {
 			t.Fatal(out.String())
 		}
+		for _, status := range []string{"skipped", "failed"} {
+			if !strings.Contains(out.String(), status+" - first second third\n") {
+				t.Fatalf("missing compact ASCII reason: %s", out.String())
+			}
+		}
 	}
 	if err := render(brokenWriter{}, doc, "human", true, true); err == nil {
 		t.Fatal("expected row output error")
@@ -397,26 +439,138 @@ func TestRunHasNoPostBatchDelay(t *testing.T) {
 		t.Fatal("must not sleep after last repository")
 		return nil
 	}
-	doc, code := run(context.Background(), settings.Config{Owner: "Octo", Mode: "standard", Path: t.TempDir(), Archived: "exclude", Forks: "exclude", Visibility: "any", Sleep: 9, Format: "json"}, o)
+	doc, code := run(context.Background(), settings.Config{Owner: "Octo", Mode: "standard", Path: t.TempDir(), Archived: "exclude", Forks: "exclude", Visibility: "any", Sleep: 9, Format: "json", Sort: "pushed"}, o)
 	if code != 0 || doc.Summary.Cloned != 1 {
 		t.Fatal(code, doc)
 	}
 }
 
 func TestDefaultSynchronizerUsesRunner(t *testing.T) {
-	o, out, stderr := fixture(t, "a")
-	o.Synchronize = nil
-	base := o.Runner
-	clones := 0
-	o.Runner = fakeRunner(func(ctx context.Context, name string, args ...string) (string, error) {
-		if name == "gh" && len(args) > 1 && args[0] == "repo" {
-			clones++
-			return "clone output", nil
+	for _, upstream := range []bool{true, false} {
+		t.Run(fmt.Sprint(upstream), func(t *testing.T) {
+			o, out, stderr := fixture(t, "a")
+			o.Synchronize = nil
+			base := o.Runner
+			clones := 0
+			o.Runner = fakeRunner(func(ctx context.Context, name string, args ...string) (string, error) {
+				if name == "gh" && len(args) > 1 && args[0] == "repo" {
+					clones++
+					if (len(args) == 4) != upstream || !upstream && (len(args) != 5 || args[4] != "--no-upstream") {
+						t.Fatalf("fork-upstream=%t: clone arguments %v", upstream, args)
+					}
+					return "clone output", nil
+				}
+				return base.Run(ctx, name, args...)
+			})
+			args := []string{"Octo", "--format=json"}
+			if !upstream {
+				args = append(args, "--fork-upstream=false")
+			}
+			if code := Execute(context.Background(), args, o); code != 0 || clones != 1 {
+				t.Fatal(code, clones, out.String(), stderr.String())
+			}
+		})
+	}
+}
+
+func TestSkipExitPolicy(t *testing.T) {
+	for _, status := range []string{"skipped", "failed"} {
+		for _, failOnSkip := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/%t", status, failOnSkip), func(t *testing.T) {
+				o, out, stderr := fixture(t, "a", "b")
+				o.Synchronize = func(_ context.Context, repo syncgit.Repository, path string) syncgit.Result {
+					return syncgit.Result{Repository: "Octo/" + repo.Name, Path: path, Status: status, Error: "reason"}
+				}
+				want := 1
+				if status == "skipped" && !failOnSkip {
+					want = 0
+				}
+				args := []string{"Octo", "--format=json", fmt.Sprintf("--fail-on-skip=%t", failOnSkip)}
+				if code := Execute(context.Background(), args, o); code != want {
+					t.Fatalf("code %d, want %d: %s", code, want, stderr)
+				}
+				var doc Document
+				if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
+					t.Fatal(err)
+				}
+				if doc.Summary.Processed != 2 || len(doc.Results) != 2 || doc.Results[0].Status != status || doc.Summary.Skipped+doc.Summary.Failed != 2 {
+					t.Fatalf("skip policy lost results: %+v", doc)
+				}
+			})
 		}
-		return base.Run(ctx, name, args...)
-	})
-	if code := Execute(context.Background(), []string{"Octo", "--format=json"}, o); code != 0 || clones != 1 {
-		t.Fatal(code, clones, out.String(), stderr.String())
+	}
+}
+
+func TestSafeModeFlagReachesSynchronizer(t *testing.T) {
+	for _, safe := range []bool{true, false} {
+		t.Run(fmt.Sprint(safe), func(t *testing.T) {
+			o, out, stderr := fixture(t, "a")
+			o.Synchronize = nil
+			root, _ := o.Getwd()
+			path := filepath.Join(root, "a")
+			if err := os.MkdirAll(filepath.Join(path, ".git"), 0755); err != nil {
+				t.Fatal(err)
+			}
+			base := o.Runner
+			pulls := 0
+			o.Runner = fakeRunner(func(ctx context.Context, name string, args ...string) (string, error) {
+				if name != "git" {
+					return base.Run(ctx, name, args...)
+				}
+				switch strings.Join(args[2:], " ") {
+				case "rev-parse --show-toplevel":
+					return path, nil
+				case "remote get-url origin":
+					return "https://github.com/Octo/a.git", nil
+				case "rev-parse --absolute-git-dir":
+					return filepath.Join(path, ".git"), nil
+				case "status --porcelain=v1 --untracked-files=all --ignore-submodules=none":
+					return "?? local-file", nil
+				case "symbolic-ref --quiet --short HEAD":
+					return "main", nil
+				case "symbolic-ref --quiet HEAD":
+					return "refs/heads/main", nil
+				case "rev-parse --verify --quiet HEAD", "rev-parse --verify HEAD":
+					return "commit", nil
+				case "check-ref-format --branch main", "show-ref --verify --quiet refs/heads/main", "checkout main":
+					return "", nil
+				case "pull":
+					pulls++
+					return "", nil
+				default:
+					t.Fatalf("unexpected Git command %v", args)
+					return "", nil
+				}
+			})
+			args := []string{"Octo", "--format=json"}
+			wantCode, wantStatus, wantPulls := 1, "skipped", 0
+			if !safe {
+				args = append(args, "--safe-mode=false")
+				wantCode, wantStatus, wantPulls = 0, "unchanged", 1
+			}
+			if code := Execute(context.Background(), args, o); code != wantCode || pulls != wantPulls {
+				t.Fatalf("code %d, pulls %d: %s", code, pulls, stderr)
+			}
+			var doc Document
+			if err := json.Unmarshal(out.Bytes(), &doc); err != nil || len(doc.Results) != 1 || doc.Results[0].Status != wantStatus {
+				t.Fatalf("unexpected policy result: %+v, %v", doc, err)
+			}
+		})
+	}
+}
+
+func TestSleepUpperBoundBetweenAttempts(t *testing.T) {
+	o, _, stderr := fixture(t, "a", "b")
+	waits := 0
+	o.Sleep = func(_ context.Context, duration time.Duration) error {
+		waits++
+		if duration != 300*time.Second {
+			t.Fatalf("delay %v, want 300s", duration)
+		}
+		return nil
+	}
+	if code := Execute(context.Background(), []string{"Octo", "--sleep=300"}, o); code != 0 || waits != 1 {
+		t.Fatalf("code %d, waits %d: %s", code, waits, stderr)
 	}
 }
 

@@ -14,7 +14,7 @@ import (
 
 	"github.com/jrmash/gh-get-repos/internal/syncgit"
 	"github.com/rivo/uniseg"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 func TestLegacyShortOptions(t *testing.T) {
@@ -40,7 +40,7 @@ func TestLegacyShortOptions(t *testing.T) {
 	if code := Execute(context.Background(), args, o); code != 0 {
 		t.Fatalf("code %d: %s", code, stderr)
 	}
-	if !reflect.DeepEqual(synced, []string{"alpha", "bravo"}) || waits != 1 {
+	if !reflect.DeepEqual(synced, []string{"charlie", "alpha"}) || waits != 1 {
 		t.Fatalf("synced %v, waits %d", synced, waits)
 	}
 	var doc Document
@@ -227,10 +227,10 @@ func TestMaxReposSelectsAfterCompleteDiscoveryAndFiltering(t *testing.T) {
 		limit string
 		want  []string
 	}{
-		{"1", []string{"alpha"}},
-		{"2", []string{"alpha", "bravo"}},
-		{"0", []string{"alpha", "bravo", "zeta"}},
-		{"20", []string{"alpha", "bravo", "zeta"}},
+		{"1", []string{"zeta"}},
+		{"2", []string{"zeta", "bravo"}},
+		{"0", []string{"zeta", "bravo", "alpha"}},
+		{"20", []string{"zeta", "bravo", "alpha"}},
 	} {
 		t.Run(tc.limit, func(t *testing.T) {
 			o, out, stderr := fixture(t)
@@ -269,7 +269,7 @@ func TestMaxReposSelectsAfterCompleteDiscoveryAndFiltering(t *testing.T) {
 }
 
 func TestMaxReposColumnWidthUsesOnlySelectedRepositories(t *testing.T) {
-	o, out, stderr := fixture(t, "zz-repository-name-that-is-not-selected", "b", "aa")
+	o, out, stderr := fixture(t, "b", "aa", "zz-repository-name-that-is-not-selected")
 	if code := Execute(context.Background(), []string{"Octo", "--max-repos=2"}, o); code != 0 {
 		t.Fatalf("code %d: %s", code, stderr)
 	}

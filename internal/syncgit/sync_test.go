@@ -3,10 +3,12 @@ package syncgit
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -14,12 +16,13 @@ import (
 )
 
 type fixture struct {
-	t      *testing.T
-	root   string
-	remote string
-	seed   string
-	repo   Repository
-	runner *fixtureRunner
+	t        *testing.T
+	root     string
+	remote   string
+	seed     string
+	repo     Repository
+	runner   *fixtureRunner
+	safeMode bool
 }
 
 type fixtureRunner struct {
@@ -38,7 +41,7 @@ func (r *fixtureRunner) Run(ctx context.Context, command string, args ...string)
 	}
 	if command == "gh" {
 		selector := strings.TrimSuffix(strings.TrimPrefix(r.origin, "https://"), ".git")
-		if len(args) != 5 || args[0] != "repo" || args[1] != "clone" || args[2] != selector || args[4] != "--no-upstream" {
+		if (len(args) != 4 && len(args) != 5) || args[0] != "repo" || args[1] != "clone" || args[2] != selector || len(args) == 5 && args[4] != "--no-upstream" {
 			return "", errors.New("unexpected gh clone arguments: " + strings.Join(args, " "))
 		}
 		command, args = "git", []string{"clone", "--no-hardlinks", r.remote, args[3]}
@@ -73,7 +76,7 @@ func gitEnv() []string {
 func newFixture(t *testing.T, empty bool) *fixture {
 	t.Helper()
 	root := t.TempDir()
-	f := &fixture{t: t, root: root, remote: filepath.Join(root, "remote.git"), seed: filepath.Join(root, "seed"),
+	f := &fixture{t: t, root: root, remote: filepath.Join(root, "remote.git"), seed: filepath.Join(root, "seed"), safeMode: true,
 		repo: Repository{Host: "github.com", Owner: "acme", Name: "project", DefaultBranch: "main", Empty: empty}}
 	f.runner = &fixtureRunner{remote: f.remote, origin: "https://github.com/acme/project.git"}
 	f.git("init", "--bare", "--initial-branch=main", f.remote)
@@ -117,7 +120,7 @@ func (f *fixture) clone(path string) {
 
 func (f *fixture) sync(path string, want string) Result {
 	f.t.Helper()
-	result := (Synchronizer{Runner: f.runner}).Sync(context.Background(), f.repo, path)
+	result := (Synchronizer{Runner: f.runner, SafeMode: f.safeMode, ForkUpstream: true}).Sync(context.Background(), f.repo, path)
 	if result.Status != want {
 		f.t.Fatalf("status = %q, want %q: %+v", result.Status, want, result)
 	}
@@ -321,7 +324,7 @@ func TestIgnoredFilesAreNotOverwritten(t *testing.T) {
 	}
 }
 
-func TestDirtySubmoduleIsSkipped(t *testing.T) {
+func TestDirtySubmodulePolicies(t *testing.T) {
 	f := newFixture(t, false)
 	sub := filepath.Join(f.root, "submodule")
 	f.git("init", "--initial-branch=main", sub)
@@ -338,9 +341,17 @@ func TestDirtySubmoduleIsSkipped(t *testing.T) {
 	f.git("-C", path, "config", "submodule.sub.ignore", "all")
 	f.write(filepath.Join(path, "sub"), "file", "dirty")
 	f.sync(path, "skipped")
+	f.safeMode = false
+	f.sync(path, "unchanged")
 	f.git("-C", filepath.Join(path, "sub"), "restore", "--", "file")
 	f.write(filepath.Join(path, "sub"), "untracked", "local")
+	f.safeMode = true
 	f.sync(path, "skipped")
+	f.safeMode = false
+	f.sync(path, "unchanged")
+	if data, err := os.ReadFile(filepath.Join(path, "sub", "untracked")); err != nil || string(data) != "local" {
+		t.Fatalf("submodule changes were lost: %q, %v", data, err)
+	}
 }
 
 func TestFailuresAndCancellation(t *testing.T) {
@@ -446,30 +457,345 @@ func (r productionFixtureRunner) Run(ctx context.Context, name string, args ...s
 func TestProductionRunnerCreatesMissingDefaultBranch(t *testing.T) {
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
-	for _, unborn := range []bool{false, true} {
-		t.Run(map[bool]string{false: "feature-checkout", true: "previously-empty-remote"}[unborn], func(t *testing.T) {
-			f := newFixture(t, unborn)
+	for _, safe := range []bool{true, false} {
+		t.Run("safe-mode="+strconv.FormatBool(safe), func(t *testing.T) {
+			for _, unborn := range []bool{false, true} {
+				t.Run(map[bool]string{false: "feature-checkout", true: "previously-empty-remote"}[unborn], func(t *testing.T) {
+					f := newFixture(t, unborn)
+					path := filepath.Join(f.root, "checkout")
+					f.clone(path)
+					if unborn {
+						f.write(f.seed, "README.md", "first commit")
+						f.commit(f.seed, "first commit")
+						f.git("-C", f.seed, "push", "origin", "main")
+						f.repo.Empty = false
+					} else {
+						f.git("-C", path, "switch", "-c", "feature")
+						f.git("-C", path, "branch", "-D", "main")
+					}
+					runner := productionFixtureRunner{remote: f.remote, origin: f.runner.origin}
+					result := (Synchronizer{Runner: runner, SafeMode: safe, ForkUpstream: true}).Sync(context.Background(), f.repo, path)
+					if result.Status != "updated" {
+						t.Fatalf("production synchronization: %+v", result)
+					}
+					if branch := f.git("-C", path, "branch", "--show-current"); branch != "main" {
+						t.Fatalf("current branch = %q", branch)
+					}
+					if upstream := f.git("-C", path, "rev-parse", "--abbrev-ref", "@{upstream}"); upstream != "origin/main" {
+						t.Fatalf("upstream = %q", upstream)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestGitManagedNonConflictingChanges(t *testing.T) {
+	for _, untracked := range []bool{false, true} {
+		for _, feature := range []bool{false, true} {
+			t.Run(fmt.Sprintf("untracked=%t/feature=%t", untracked, feature), func(t *testing.T) {
+				f := newFixture(t, false)
+				f.safeMode = false
+				path := filepath.Join(f.root, "checkout")
+				f.clone(path)
+				f.git("-C", path, "config", "pull.ff", "only")
+				if feature {
+					f.git("-C", path, "switch", "-c", "feature")
+				}
+				name := "README.md"
+				if untracked {
+					name = "untracked"
+				}
+				f.write(path, name, "keep local changes\n")
+				f.write(f.seed, "remote", "remote addition\n")
+				f.commit(f.seed, "remote addition")
+				f.git("-C", f.seed, "push")
+				f.sync(path, "updated")
+				if got := f.git("-C", path, "rev-parse", "HEAD"); got != f.git("-C", f.seed, "rev-parse", "HEAD") {
+					t.Fatal("default branch was not advanced")
+				}
+				if data, err := os.ReadFile(filepath.Join(path, name)); err != nil || string(data) != "keep local changes\n" {
+					t.Fatalf("local changes were lost: %q, %v", data, err)
+				}
+				if f.git("-C", path, "status", "--porcelain") == "" {
+					t.Fatal("local changes disappeared")
+				}
+			})
+		}
+	}
+}
+
+func TestGitManagedBranchStates(t *testing.T) {
+	for _, state := range []string{"main", "feature", "detached", "ahead"} {
+		t.Run(state, func(t *testing.T) {
+			f := newFixture(t, false)
+			f.safeMode = false
 			path := filepath.Join(f.root, "checkout")
 			f.clone(path)
-			if unborn {
-				f.write(f.seed, "README.md", "first commit")
-				f.commit(f.seed, "first commit")
-				f.git("-C", f.seed, "push", "origin", "main")
-				f.repo.Empty = false
-			} else {
+			want := "unchanged"
+			switch state {
+			case "feature":
 				f.git("-C", path, "switch", "-c", "feature")
-				f.git("-C", path, "branch", "-D", "main")
+				want = "updated"
+			case "detached":
+				f.git("-C", path, "switch", "--detach")
+				want = "updated"
+			case "ahead":
+				f.write(path, "local", "local commit\n")
+				f.commit(path, "local commit")
 			}
-			runner := productionFixtureRunner{remote: f.remote, origin: f.runner.origin}
-			result := (Synchronizer{Runner: runner}).Sync(context.Background(), f.repo, path)
-			if result.Status != "updated" {
-				t.Fatalf("production synchronization: %+v", result)
+			before := f.git("-C", path, "rev-parse", "HEAD")
+			f.sync(path, want)
+			if f.git("-C", path, "branch", "--show-current") != "main" || f.git("-C", path, "rev-parse", "HEAD") != before {
+				t.Fatal("branch switch lost commits or did not select main")
 			}
-			if branch := f.git("-C", path, "branch", "--show-current"); branch != "main" {
-				t.Fatalf("current branch = %q", branch)
+			f.sync(path, "unchanged")
+			pulls := 0
+			for _, call := range f.runner.calls {
+				if strings.Contains(call, " fetch ") {
+					t.Fatalf("redundant fetch before plain pull: %s", call)
+				}
+				if strings.HasSuffix(call, " pull") {
+					pulls++
+				}
 			}
-			if upstream := f.git("-C", path, "rev-parse", "--abbrev-ref", "@{upstream}"); upstream != "origin/main" {
-				t.Fatalf("upstream = %q", upstream)
+			if pulls != 2 {
+				t.Fatalf("plain pulls = %d, want 2", pulls)
+			}
+		})
+	}
+}
+
+func TestGitManagedPullStrategies(t *testing.T) {
+	for _, strategy := range []string{"merge", "rebase", "ff-only"} {
+		t.Run(strategy, func(t *testing.T) {
+			f := newFixture(t, false)
+			f.safeMode = false
+			path := filepath.Join(f.root, "checkout")
+			f.clone(path)
+			f.git("-C", path, "config", "core.editor", "true")
+			f.git("-C", path, "config", "pull.rebase", strconv.FormatBool(strategy == "rebase"))
+			if strategy == "ff-only" {
+				f.git("-C", path, "config", "pull.ff", "only")
+			}
+			f.write(path, "local", "local commit\n")
+			f.commit(path, "local commit")
+			before := f.git("-C", path, "rev-parse", "HEAD")
+			f.write(f.seed, "remote", "remote commit\n")
+			f.commit(f.seed, "remote commit")
+			f.git("-C", f.seed, "push")
+			want := "updated"
+			if strategy == "ff-only" {
+				want = "failed"
+			}
+			f.sync(path, want)
+			if strategy == "ff-only" {
+				if f.git("-C", path, "rev-parse", "HEAD") != before {
+					t.Fatal("failed fast-forward rewrote local commits")
+				}
+				return
+			}
+			f.git("-C", path, "merge-base", "--is-ancestor", f.git("-C", f.seed, "rev-parse", "HEAD"), "HEAD")
+			parents := strings.Fields(f.git("-C", path, "rev-list", "--parents", "-n", "1", "HEAD"))
+			wantFields := 3
+			if strategy == "rebase" {
+				wantFields = 2
+			}
+			if len(parents) != wantFields {
+				t.Fatalf("pull did not follow %s configuration: %v", strategy, parents)
+			}
+			if data, err := os.ReadFile(filepath.Join(path, "local")); err != nil || string(data) != "local commit\n" {
+				t.Fatalf("local commit content was lost: %q, %v", data, err)
+			}
+		})
+	}
+}
+
+func TestGitManagedConfiguredUpstreamAndFetchScope(t *testing.T) {
+	f := newFixture(t, false)
+	f.safeMode = false
+	path := filepath.Join(f.root, "checkout")
+	f.clone(path)
+	other := filepath.Join(f.root, "upstream.git")
+	f.git("clone", "--bare", f.remote, other)
+	f.git("-C", path, "remote", "add", "upstream", other)
+	f.git("-C", path, "fetch", "upstream")
+	f.git("-C", path, "branch", "--set-upstream-to=upstream/main", "main")
+	f.git("-C", f.seed, "remote", "add", "upstream", other)
+	f.write(f.seed, "upstream", "new upstream commit\n")
+	f.commit(f.seed, "new upstream commit")
+	f.git("-C", f.seed, "branch", "secondary")
+	f.git("-C", f.seed, "tag", "upstream-tag")
+	f.git("-C", f.seed, "push", "upstream", "main", "secondary", "--tags")
+	f.sync(path, "updated")
+	if f.git("-C", path, "rev-parse", "HEAD") != f.git("-C", f.seed, "rev-parse", "HEAD") {
+		t.Fatal("plain pull did not use the configured upstream")
+	}
+	f.git("-C", path, "show-ref", "--verify", "refs/remotes/upstream/secondary")
+	f.git("-C", path, "show-ref", "--verify", "refs/tags/upstream-tag")
+	for _, call := range f.runner.calls {
+		if strings.Contains(call, " fetch ") {
+			t.Fatalf("extra fetch overrides plain pull's configured remote: %s", call)
+		}
+	}
+}
+
+func TestGitManagedCheckoutFailureStopsBeforePull(t *testing.T) {
+	f := newFixture(t, false)
+	f.safeMode = false
+	path := filepath.Join(f.root, "checkout")
+	f.clone(path)
+	f.git("-C", path, "switch", "-c", "feature")
+	f.write(f.seed, "README.md", "incoming changes\n")
+	f.commit(f.seed, "incoming changes")
+	f.git("-C", f.seed, "push")
+	f.git("-C", path, "fetch")
+	f.git("-C", path, "branch", "--force", "main", "origin/main")
+	f.write(path, "README.md", "keep local changes\n")
+	result := f.sync(path, "failed")
+	if !strings.Contains(result.Error, "check out default branch") || f.git("-C", path, "branch", "--show-current") != "feature" {
+		t.Fatalf("unexpected checkout failure: %+v", result)
+	}
+	for _, call := range f.runner.calls {
+		if strings.HasSuffix(call, " pull") {
+			t.Fatalf("pull ran after checkout failed: %s", call)
+		}
+	}
+	if data, err := os.ReadFile(filepath.Join(path, "README.md")); err != nil || string(data) != "keep local changes\n" {
+		t.Fatalf("checkout failure lost changes: %q, %v", data, err)
+	}
+}
+
+func TestGitManagedCheckoutMustSelectDefaultBranch(t *testing.T) {
+	f := newFixture(t, false)
+	f.safeMode = false
+	f.repo.DefaultBranch = "@"
+	f.git("-C", f.seed, "branch", "@", "main")
+	f.git("-C", f.seed, "push", "origin", "refs/heads/@:refs/heads/@")
+	path := filepath.Join(f.root, "checkout")
+	f.clone(path)
+	f.git("-C", path, "branch", "--track", "@", "origin/@")
+	f.git("-C", path, "switch", "-c", "feature", "--track", "origin/main")
+	before := f.git("-C", path, "rev-parse", "refs/heads/feature")
+	defaultBefore := f.git("-C", path, "rev-parse", "refs/heads/@")
+	// Pull would advance feature if checkout mistakes @ for the current HEAD.
+	f.write(f.seed, "remote", "incoming changes\n")
+	f.commit(f.seed, "incoming changes")
+	f.git("-C", f.seed, "push", "origin", "main")
+	result := f.sync(path, "failed")
+	if !strings.Contains(result.Error, "refs/heads/feature") || !strings.Contains(result.Error, "refs/heads/@") {
+		t.Fatalf("missing actual and intended branch in error: %+v", result)
+	}
+	if head := f.git("-C", path, "symbolic-ref", "HEAD"); head != "refs/heads/feature" {
+		t.Fatalf("unexpected symbolic HEAD %q", head)
+	}
+	if f.git("-C", path, "rev-parse", "refs/heads/feature") != before || f.git("-C", path, "rev-parse", "refs/heads/@") != defaultBefore {
+		t.Fatal("checkout mismatch advanced a local branch")
+	}
+	for _, call := range f.runner.calls {
+		if strings.HasSuffix(call, " pull") {
+			t.Fatalf("pull ran after checkout selected the wrong branch: %s", call)
+		}
+	}
+}
+
+func TestGitManagedCheckoutVerificationFailureStopsBeforePull(t *testing.T) {
+	for _, detached := range []bool{false, true} {
+		t.Run(fmt.Sprintf("detached=%t", detached), func(t *testing.T) {
+			f := newFixture(t, false)
+			f.safeMode = false
+			path := filepath.Join(f.root, "checkout")
+			f.clone(path)
+			f.runner.hook = func(command string, args []string) (string, error, bool) {
+				if command == "git" {
+					switch strings.Join(args[2:], " ") {
+					case "checkout main":
+						if detached {
+							return f.git("-C", path, "checkout", "--detach", "refs/heads/main"), nil, true
+						}
+					case "symbolic-ref --quiet HEAD":
+						if !detached {
+							return "", errors.New("cannot read symbolic HEAD"), true
+						}
+					}
+				}
+				return "", nil, false
+			}
+			result := f.sync(path, "failed")
+			if !strings.Contains(result.Error, "verify checked out branch") {
+				t.Fatalf("missing branch verification error: %+v", result)
+			}
+			for _, call := range f.runner.calls {
+				if strings.HasSuffix(call, " pull") {
+					t.Fatalf("pull ran without verifying the selected branch: %s", call)
+				}
+			}
+		})
+	}
+}
+
+func TestGitManagedValidatesDestination(t *testing.T) {
+	for _, kind := range []string{"wrong-origin", "nested", "symlink"} {
+		t.Run(kind, func(t *testing.T) {
+			f := newFixture(t, false)
+			f.safeMode = false
+			path := filepath.Join(f.root, "checkout")
+			f.clone(path)
+			switch kind {
+			case "wrong-origin":
+				f.git("-C", path, "remote", "set-url", "origin", "https://github.com/other/project.git")
+			case "nested":
+				path = filepath.Join(path, "nested")
+				if err := os.Mkdir(path, 0755); err != nil {
+					t.Fatal(err)
+				}
+				f.write(path, "local", "data")
+			case "symlink":
+				link := filepath.Join(f.root, "linked")
+				if err := os.Symlink(path, link); err != nil {
+					t.Skipf("symbolic links unsupported: %v", err)
+				}
+				path = link
+			}
+			f.sync(path, "failed")
+			for _, call := range f.runner.calls {
+				if strings.Contains(call, " checkout ") || strings.HasSuffix(call, " pull") {
+					t.Fatalf("invalid destination was updated: %s", call)
+				}
+			}
+		})
+	}
+}
+
+func TestGitManagedRespectsWorktreeLocksAndConflicts(t *testing.T) {
+	for _, state := range []string{"other-worktree", "merge-conflict"} {
+		t.Run(state, func(t *testing.T) {
+			f := newFixture(t, false)
+			f.safeMode = false
+			path := filepath.Join(f.root, "checkout")
+			f.clone(path)
+			f.git("-C", path, "switch", "-c", "feature")
+			if state == "other-worktree" {
+				f.git("-C", path, "worktree", "add", filepath.Join(f.root, "linked"), "main")
+			} else {
+				f.write(path, "README.md", "local commit\n")
+				f.commit(path, "local commit")
+				f.write(f.seed, "README.md", "remote commit\n")
+				f.commit(f.seed, "remote commit")
+				f.git("-C", f.seed, "push")
+				f.git("-C", path, "fetch")
+				if _, err := f.runner.Run(context.Background(), "git", "-C", path, "merge", "origin/main"); err == nil {
+					t.Fatal("fixture did not create a merge conflict")
+				}
+			}
+			result := f.sync(path, "failed")
+			if !strings.Contains(result.Error, "check out default branch") {
+				t.Fatal(result)
+			}
+			for _, call := range f.runner.calls {
+				if strings.HasSuffix(call, " pull") {
+					t.Fatalf("pull ran after checkout failed: %s", call)
+				}
 			}
 		})
 	}
@@ -488,7 +814,7 @@ func TestProgressBeforeGitOperations(t *testing.T) {
 	f := newFixture(t, false)
 	path := filepath.Join(f.root, "checkout")
 	var phases []string
-	synchronizer := Synchronizer{Runner: f.runner, Progress: func(phase string) { phases = append(phases, phase) }}
+	synchronizer := Synchronizer{Runner: f.runner, SafeMode: true, ForkUpstream: true, Progress: func(phase string) { phases = append(phases, phase) }}
 	f.runner.hook = func(command string, args []string) (string, error, bool) {
 		if command == "gh" && (len(phases) == 0 || phases[len(phases)-1] != "Cloning") {
 			t.Fatal("clone began before progress notification")

@@ -10,7 +10,7 @@ import (
 
 	"github.com/jrmash/gh-get-repos/internal/syncgit"
 	"github.com/rivo/uniseg"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 var humanColorEscape = regexp.MustCompile(`\x1b\[[0-9;]*m`)
@@ -70,8 +70,8 @@ func TestHumanOutputAlignedTableSnapshot(t *testing.T) {
 	if err := render(&out, doc, "human", false, false); err != nil {
 		t.Fatal(err)
 	}
-	want := "+ jrmash/bfl" + strings.Repeat(" ", 40) + "cloned   \n" +
-		"+ jrmash/perl-Dist-Zilla-PluginBundle-Author-JRMASH updated  \n" +
+	want := "+ jrmash/bfl" + strings.Repeat(" ", 40) + "cloned\n" +
+		"+ jrmash/perl-Dist-Zilla-PluginBundle-Author-JRMASH updated\n" +
 		"+ jrmash/terramate-component-library" + strings.Repeat(" ", 16) + "unchanged\n" +
 		"3 selected · 1 cloned · 1 updated · 1 unchanged · 0 skipped · 0 failed\n"
 	if out.String() != want {

@@ -129,6 +129,8 @@ func TestRunVerboseStreamsGitAndCloneButCapturesAPI(t *testing.T) {
 		log     bool
 	}{
 		{"git", []string{"fetch", "origin", "main"}, true, true},
+		{"git", []string{"-C", "checkout", "checkout", "main"}, true, true},
+		{"git", []string{"-C", "checkout", "pull"}, true, true},
 		{"git", []string{"-C", "directory with spaces", "-c", "submodule.recurse=false", "merge", "--ff-only"}, true, true},
 		{"git", []string{"-C", "directory", "remote", "get-url", "origin"}, true, false},
 		{"git", []string{"-C"}, true, false},

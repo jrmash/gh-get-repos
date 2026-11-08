@@ -41,7 +41,7 @@ func TestDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Config{Archived: "exclude", Forks: "exclude", Format: "human", Mode: "standard", Visibility: "any", Path: cwd}
+	want := Config{Archived: "exclude", Forks: "exclude", Format: "human", Mode: "standard", Visibility: "any", Path: cwd, Sort: "pushed", SafeMode: true, ForkUpstream: true, FailOnSkip: true}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}
@@ -72,7 +72,7 @@ path: local-repos
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Config{Owner: "cli-org", Archived: "only", Forks: "only", Format: "json", Mode: "worktree", Visibility: "private", Topics: []string{"cli"}, Path: filepath.Join(cwd, "cli-repos")}
+	want := Config{Owner: "cli-org", Archived: "only", Forks: "only", Format: "json", Mode: "worktree", Visibility: "private", Topics: []string{"cli"}, Path: filepath.Join(cwd, "cli-repos"), Sort: "pushed", SafeMode: true, ForkUpstream: true, FailOnSkip: true}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}
@@ -97,6 +97,27 @@ func TestLocalOwnerAndEmptyOverrides(t *testing.T) {
 	if got.Owner != "" || got.Language != "" || len(got.Topics) != 0 || got.Path != cwd {
 		t.Fatalf("empty environment values did not override: %+v", got)
 	}
+}
+
+func TestUpdatePolicyLayers(t *testing.T) {
+	cwd, global, values := fixture(t)
+	check := func(overrides map[string]string, order string, enabled bool) {
+		t.Helper()
+		got, err := Load(cwd, env(values), overrides)
+		if err != nil || got.Sort != order || got.SafeMode != enabled || got.ForkUpstream != enabled || got.FailOnSkip != enabled {
+			t.Fatalf("policy layers: %+v, %v; want sort %s, booleans %t", got, err, order, enabled)
+		}
+	}
+	write(t, filepath.Join(global, "get-repos.yml"), "sort: name\nsafe-mode: false\nfork-upstream: false\nfail-on-skip: false\n")
+	check(nil, "name", false)
+	write(t, filepath.Join(cwd, ".gh-get-repos.yml"), "sort: updated\nsafe-mode: true\nfork-upstream: true\nfail-on-skip: true\n")
+	check(nil, "updated", true)
+	values["GHGR_OPT_SORT"] = "pushed"
+	for _, key := range []string{"GHGR_OPT_SAFE_MODE", "GHGR_OPT_FORK_UPSTREAM", "GHGR_OPT_FAIL_ON_SKIP"} {
+		values[key] = "false"
+	}
+	check(nil, "pushed", false)
+	check(map[string]string{"sort": "name", "safe-mode": "true", "fork-upstream": "true", "fail-on-skip": "true"}, "name", true)
 }
 
 func TestLocalConfigOnlyChecksInvocationDirectory(t *testing.T) {
@@ -131,9 +152,14 @@ func TestLoadValidation(t *testing.T) {
 		{"format", "", "human|json|yaml"},
 		{"mode", "standard|worktree", "standard|worktree"},
 		{"visibility", "protected", "any|internal|private|public"},
-		{"sleep", "-1", "integer from 0 to 99"},
-		{"sleep", "100", "integer from 0 to 99"},
-		{"sleep", "1.1", "integer from 0 to 99"},
+		{"sleep", "-1", "integer from 0 to 300"},
+		{"sleep", "301", "integer from 0 to 300"},
+		{"sleep", "1.1", "integer from 0 to 300"},
+		{"sort", "stars", "pushed|updated|name"},
+		{"sort", "", "pushed|updated|name"},
+		{"safe-mode", "sometimes", "boolean"},
+		{"fork-upstream", "sometimes", "boolean"},
+		{"fail-on-skip", "sometimes", "boolean"},
 		{"max-repos", "-1", "nonnegative integer"},
 		{"max-repos", "1.1", "nonnegative integer"},
 		{"max-repos", "", "nonnegative integer"},
@@ -172,7 +198,9 @@ func TestValidValues(t *testing.T) {
 	for key, accepted := range map[string][]string{
 		"archived": {"any", "exclude", "only"}, "forks": {"any", "exclude", "only"},
 		"format": {"human", "json", "yaml"}, "mode": {"standard", "worktree"},
-		"visibility": {"any", "internal", "private", "public"}, "sleep": {"0", "9", "10", "99"},
+		"visibility": {"any", "internal", "private", "public"}, "sleep": {"0", "9", "10", "99", "100", "300"},
+		"sort": {"pushed", "updated", "name"}, "safe-mode": {"false", "true"},
+		"fork-upstream": {"false", "true"}, "fail-on-skip": {"false", "true"},
 		"max-repos": {"0", "1", "1000", "10000"}, "verbose": {"false", "true"}, "dry-run": {"false", "true"},
 	} {
 		for _, input := range accepted {
@@ -188,6 +216,7 @@ func TestEnvironmentAliases(t *testing.T) {
 	for key, val := range map[string]string{
 		"OWNER": "environment", "ARCHIVED": "any", "FORKS": "only", "FORMAT": "yaml", "MODE": "worktree",
 		"VISIBILITY": "internal", "LANGUAGE": "Rust", "TOPIC": "cli,go", "SLEEP": "2", "PATH": "repos", "VERBOSE": "true", "MAX_REPOS": "20", "DRY_RUN": "true",
+		"SORT": "updated", "SAFE_MODE": "false", "FORK_UPSTREAM": "false", "FAIL_ON_SKIP": "false",
 	} {
 		values["GHGR_"+key] = val
 	}
@@ -196,7 +225,7 @@ func TestEnvironmentAliases(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Config{Owner: "environment", Archived: "any", Forks: "only", Format: "yaml", Mode: "worktree", Visibility: "internal", Language: "Rust", Topics: []string{"cli", "go"}, Sleep: 2, MaxRepos: 20, Path: filepath.Join(cwd, "repos"), Verbose: true, DryRun: true}
+	want := Config{Owner: "environment", Archived: "any", Forks: "only", Format: "yaml", Mode: "worktree", Visibility: "internal", Language: "Rust", Topics: []string{"cli", "go"}, Sleep: 2, MaxRepos: 20, Path: filepath.Join(cwd, "repos"), Verbose: true, DryRun: true, Sort: "updated"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}
@@ -213,6 +242,7 @@ func TestCanonicalEnvironmentNames(t *testing.T) {
 		"ARCHIVED": "any", "FORKS": "only", "FORMAT": "yaml", "MODE": "worktree",
 		"VISIBILITY": "internal", "LANGUAGE": "Rust", "TOPIC": "cli,go", "SLEEP": "99",
 		"PATH": "repos", "VERBOSE": "true", "LIMIT": "42", "DRY_RUN": "true",
+		"SORT": "name", "SAFE_MODE": "false", "FORK_UPSTREAM": "false", "FAIL_ON_SKIP": "false",
 	} {
 		values["GHGR_OPT_"+key] = val
 	}
@@ -221,7 +251,7 @@ func TestCanonicalEnvironmentNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Config{Owner: "environment", Archived: "any", Forks: "only", Format: "yaml", Mode: "worktree", Visibility: "internal", Language: "Rust", Topics: []string{"cli", "go"}, Sleep: 99, MaxRepos: 42, Path: filepath.Join(cwd, "repos"), Verbose: true, DryRun: true}
+	want := Config{Owner: "environment", Archived: "any", Forks: "only", Format: "yaml", Mode: "worktree", Visibility: "internal", Language: "Rust", Topics: []string{"cli", "go"}, Sleep: 99, MaxRepos: 42, Path: filepath.Join(cwd, "repos"), Verbose: true, DryRun: true, Sort: "name"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}
@@ -249,6 +279,7 @@ func TestCanonicalEnvironmentOverridesAliases(t *testing.T) {
 				"archived": "any", "forks": "any", "format": "human", "mode": "standard",
 				"visibility": "any", "language": "", "topic": "", "sleep": "0",
 				"max-repos": "0", "path": "", "verbose": "false", "dry-run": "false",
+				"sort": "updated", "safe-mode": "false", "fork-upstream": "false", "fail-on-skip": "false",
 			}[key]
 			inputs[aliases[0]], inputs[aliases[1]] = "invalid", canonical
 			got, err := Load(cwd, env(inputs), nil)
@@ -382,6 +413,9 @@ func TestYAML(t *testing.T) {
 		{"legacy-verbose", "verbose: yes\n", "YAML boolean"},
 		{"string-dry-run", "dry-run: 'false'\n", "YAML boolean"},
 		{"integer-dry-run", "dry-run: 0\n", "YAML boolean"},
+		{"string-safe-mode", "safe-mode: 'false'\n", "YAML boolean"},
+		{"string-fork-upstream", "fork-upstream: 'false'\n", "YAML boolean"},
+		{"string-fail-on-skip", "fail-on-skip: 'false'\n", "YAML boolean"},
 		{"string-max-repos", "max-repos: '1'\n", "YAML integer"},
 		{"fraction-max-repos", "max-repos: 1.5\n", "YAML integer"},
 		{"overflow-max-repos", "max-repos: 18446744073709551615\n", "must be an integer"},
@@ -440,7 +474,7 @@ func TestNilLookup(t *testing.T) {
 		}
 	}
 	// Explicit values ensure inherited shell settings do not affect this test.
-	got, err := Load(cwd, nil, map[string]string{"owner": "test", "archived": "any", "forks": "any", "format": "json", "mode": "standard", "visibility": "any", "sleep": "0", "verbose": "false", "max-repos": "0", "dry-run": "false"})
+	got, err := Load(cwd, nil, map[string]string{"owner": "test", "archived": "any", "forks": "any", "format": "json", "mode": "standard", "visibility": "any", "sleep": "0", "verbose": "false", "max-repos": "0", "dry-run": "false", "sort": "pushed", "safe-mode": "true", "fork-upstream": "true", "fail-on-skip": "true"})
 	if err != nil || got.Owner != "test" {
 		t.Fatalf("got %+v, %v", got, err)
 	}

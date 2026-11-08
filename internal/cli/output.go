@@ -8,7 +8,7 @@ import (
 	"unicode"
 
 	"github.com/rivo/uniseg"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 
 	"github.com/jrmash/gh-get-repos/internal/syncgit"
 )
@@ -124,12 +124,12 @@ func renderHumanResult(out io.Writer, result syncgit.Result, color, terminal boo
 	}
 	detail := ""
 	if result.Error != "" {
-		detail = " — " + oneLine(result.Error)
+		detail = " - " + oneLine(result.Error)
 	}
 	nameWidth = max(1, nameWidth)
 	name := truncateProgress(oneLine(result.Repository), nameWidth)
 	name += strings.Repeat(" ", nameWidth-uniseg.StringWidth(name))
-	_, err := fmt.Fprintf(out, "%s %s %-9s%s\n", symbol, name, result.Status, detail)
+	_, err := fmt.Fprintf(out, "%s %s %s%s\n", symbol, name, result.Status, detail)
 	return err
 }
 
