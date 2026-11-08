@@ -8,7 +8,7 @@ import (
 	"unicode"
 
 	"github.com/rivo/uniseg"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 
 	"github.com/jrmash/gh-get-repos/internal/syncgit"
 )

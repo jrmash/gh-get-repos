@@ -17,7 +17,7 @@ import (
 	"github.com/jrmash/gh-get-repos/internal/settings"
 	"github.com/jrmash/gh-get-repos/internal/syncgit"
 	"github.com/rivo/uniseg"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 type fakeRunner func(context.Context, string, ...string) (string, error)
