@@ -666,6 +666,74 @@ func TestGitManagedCheckoutFailureStopsBeforePull(t *testing.T) {
 	}
 }
 
+func TestGitManagedCheckoutMustSelectDefaultBranch(t *testing.T) {
+	f := newFixture(t, false)
+	f.safeMode = false
+	f.repo.DefaultBranch = "@"
+	f.git("-C", f.seed, "branch", "@", "main")
+	f.git("-C", f.seed, "push", "origin", "refs/heads/@:refs/heads/@")
+	path := filepath.Join(f.root, "checkout")
+	f.clone(path)
+	f.git("-C", path, "branch", "--track", "@", "origin/@")
+	f.git("-C", path, "switch", "-c", "feature", "--track", "origin/main")
+	before := f.git("-C", path, "rev-parse", "refs/heads/feature")
+	defaultBefore := f.git("-C", path, "rev-parse", "refs/heads/@")
+	// Pull would advance feature if checkout mistakes @ for the current HEAD.
+	f.write(f.seed, "remote", "incoming changes\n")
+	f.commit(f.seed, "incoming changes")
+	f.git("-C", f.seed, "push", "origin", "main")
+	result := f.sync(path, "failed")
+	if !strings.Contains(result.Error, "refs/heads/feature") || !strings.Contains(result.Error, "refs/heads/@") {
+		t.Fatalf("missing actual and intended branch in error: %+v", result)
+	}
+	if head := f.git("-C", path, "symbolic-ref", "HEAD"); head != "refs/heads/feature" {
+		t.Fatalf("unexpected symbolic HEAD %q", head)
+	}
+	if f.git("-C", path, "rev-parse", "refs/heads/feature") != before || f.git("-C", path, "rev-parse", "refs/heads/@") != defaultBefore {
+		t.Fatal("checkout mismatch advanced a local branch")
+	}
+	for _, call := range f.runner.calls {
+		if strings.HasSuffix(call, " pull") {
+			t.Fatalf("pull ran after checkout selected the wrong branch: %s", call)
+		}
+	}
+}
+
+func TestGitManagedCheckoutVerificationFailureStopsBeforePull(t *testing.T) {
+	for _, detached := range []bool{false, true} {
+		t.Run(fmt.Sprintf("detached=%t", detached), func(t *testing.T) {
+			f := newFixture(t, false)
+			f.safeMode = false
+			path := filepath.Join(f.root, "checkout")
+			f.clone(path)
+			f.runner.hook = func(command string, args []string) (string, error, bool) {
+				if command == "git" {
+					switch strings.Join(args[2:], " ") {
+					case "checkout main":
+						if detached {
+							return f.git("-C", path, "checkout", "--detach", "refs/heads/main"), nil, true
+						}
+					case "symbolic-ref --quiet HEAD":
+						if !detached {
+							return "", errors.New("cannot read symbolic HEAD"), true
+						}
+					}
+				}
+				return "", nil, false
+			}
+			result := f.sync(path, "failed")
+			if !strings.Contains(result.Error, "verify checked out branch") {
+				t.Fatalf("missing branch verification error: %+v", result)
+			}
+			for _, call := range f.runner.calls {
+				if strings.HasSuffix(call, " pull") {
+					t.Fatalf("pull ran without verifying the selected branch: %s", call)
+				}
+			}
+		})
+	}
+}
+
 func TestGitManagedValidatesDestination(t *testing.T) {
 	for _, kind := range []string{"wrong-origin", "nested", "symlink"} {
 		t.Run(kind, func(t *testing.T) {

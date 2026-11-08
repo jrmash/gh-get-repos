@@ -528,6 +528,8 @@ func TestSafeModeFlagReachesSynchronizer(t *testing.T) {
 					return "?? local-file", nil
 				case "symbolic-ref --quiet --short HEAD":
 					return "main", nil
+				case "symbolic-ref --quiet HEAD":
+					return "refs/heads/main", nil
 				case "rev-parse --verify --quiet HEAD", "rev-parse --verify HEAD":
 					return "commit", nil
 				case "check-ref-format --branch main", "show-ref --verify --quiet refs/heads/main", "checkout main":

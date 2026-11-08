@@ -241,7 +241,7 @@ func (s Synchronizer) Sync(ctx context.Context, repo Repository, path string) Re
 }
 
 // pull deliberately leaves merge/rebase, fetch scope, submodules, and working
-// tree handling to Git. A failed checkout always stops before pull is attempted.
+// tree handling to Git. Checkout must select the intended branch before pulling.
 func (s Synchronizer) pull(repo Repository, git func(...string) (string, error)) (string, error) {
 	if repo.DefaultBranch == "" {
 		return "", errors.New("repository has no default branch")
@@ -274,6 +274,13 @@ func (s Synchronizer) pull(repo Repository, git func(...string) (string, error))
 	s.progress("Switching to default branch")
 	if _, err := git(checkout...); err != nil {
 		return "", fmt.Errorf("check out default branch: %w", err)
+	}
+	selected, err := git("symbolic-ref", "--quiet", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("verify checked out branch: %w", err)
+	}
+	if expected := "refs/heads/" + repo.DefaultBranch; selected != expected {
+		return "", fmt.Errorf("checkout selected %q instead of default branch %q", selected, expected)
 	}
 	s.progress("Pulling default branch")
 	if _, err := git("pull"); err != nil {
