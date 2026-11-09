@@ -19,7 +19,7 @@ Hook repositories are pinned to commit SHAs. Update them while preserving hash p
 pre-commit autoupdate --freeze
 ```
 
-Validation workflows support pull requests, pushes to `main` and `next`, and manual dispatch. Native path filters limit build/test runs to Go inputs, test fixtures, the CI helper, Git attributes, and the build workflow. Code checks run for Go inputs and workflow or action changes. Markdown checks run for documentation, lint/link configuration, ignore rules, and linked workflow or release configuration files. Manual runs bypass path filters, and scheduled security scans still run weekly.
+Validation workflows support pull requests, pushes to `main`, and manual dispatch. Native path filters limit build/test runs to Go inputs, test fixtures, the CI helper, Git attributes, and the build workflow. Code checks run for Go inputs and workflow or action changes. Markdown checks run for documentation, lint/link configuration, ignore rules, and linked workflow or release configuration files. Manual runs bypass path filters, and scheduled security scans still run weekly.
 
 The [Execute pre-commit workflow](.github/workflows/execute-pre-commit.yml) runs the same hooks against all tracked files. It sets up Python and Go and uses the SHA-pinned pre-commit Action to run the hooks and report formatting changes as a failing check with a diff.
 
@@ -53,7 +53,7 @@ Run the same integration test locally with GitHub CLI authentication configured:
 go test -tags smoke -count=1 -v -timeout=15m ./integration
 ```
 
-These tests require network access and use `GH_TOKEN`, `GITHUB_TOKEN`, or existing `gh` authentication. CI supplies the job's read-only token. Ordinary unit tests stay offline. On Windows, the smoke fixture uses a small shell launcher for GitHub CLI's local-extension dispatch and runs the native executable behind it. Downloading and installing published release assets should also be verified from a prerelease before publishing a stable release.
+These tests require network access and use `GH_TOKEN`, `GITHUB_TOKEN`, or existing `gh` authentication. CI supplies the job's read-only token. Ordinary unit tests stay offline. On Windows, the smoke fixture uses a small shell launcher for GitHub CLI's local-extension dispatch and runs the native executable behind it. Published release assets should also be downloaded and checked for installation and version output.
 
 ## Security checks and dependency updates
 
@@ -81,34 +81,40 @@ lychee --no-progress '**/*.md'
 
 ## Releases
 
-[Release Please](https://github.com/googleapis/release-please-action) manages versions, changelogs, and release PRs through a single [Release PR workflow](.github/workflows/release-pr.yml). It runs on pushes to `main` and `next`, targeting the branch that received the push. The repository's default branch uses the stable configuration; `next` uses the prerelease configuration.
+[Release Please](https://github.com/googleapis/release-please-action) manages stable versions, changelogs, and release PRs through a single [Release PR workflow](.github/workflows/release-pr.yml) and [.release-please-config.json](.release-please-config.json). The workflow runs on pushes to `main`; manual release runs are limited to the default branch.
 
-| Branch | Channel | Initial version | Configuration |
-| --- | --- | --- | --- |
-| `next` | Release candidates | `v2.0.0-rc.1` | [.release-please-config-prerelease.json](.release-please-config-prerelease.json) |
-| `main` (default) | Stable | `v2.0.0` | [.release-please-config.json](.release-please-config.json) |
+Develop on short-lived feature branches and open PRs into `main`. Use Conventional Commit titles: `fix: ...` for a patch release, `feat: ...` for a minor release, and `feat!: ...` or a `BREAKING CHANGE:` footer for a major release. Squash merging keeps each feature PR's release intent in one commit. Documentation and maintenance commits do not normally trigger a release.
 
-Both branches must contain the same pair of configuration files. Selecting a channel does not require editing either file. Manual runs are also limited to the default branch and `next`.
+1. Open a feature PR into `main`, review it, and wait for all required checks to pass before merging.
+2. Squash merge with the Conventional Commit title. Release Please opens or updates a stable release PR containing the proposed version, changelog, and version manifest.
+3. Review the release PR's version and notes, approve its workflows, and wait for all required checks to pass. Squash merge the generated release PR when ready to publish.
+4. The **Prepare Release** job creates the tag and draft release. The **Publish Release** job checks out the release commit and uses [`cli/gh-extension-precompile`](https://github.com/cli/gh-extension-precompile) to build and upload binaries, embed the release version, and generate attestations. It then publishes the completed release and marks it Latest. Publishing does not rerun the validation workflows.
 
-Use Conventional Commit messages: `fix: ...` for bug fixes, `feat: ...` for features, and `feat!: ...` or a `BREAKING CHANGE:` footer for breaking changes. Squash merging PRs with these titles is sufficient. Documentation and maintenance commits do not normally trigger a release. Use `feat: automate Go extension releases` for this setup commit to trigger the first release PR; the earlier rewrite commits do not use Conventional Commits.
-
-1. Merge development PRs into `next`. Release Please opens or updates a prerelease PR containing the changelog and version manifest.
-2. Review the proposed version and notes, approve the workflows on that PR, and wait for all required checks to pass before merging it. Before the first RC, summarize the rewrite in its changelog entry and link to [Upgrading](UPGRADING.md).
-3. After the release PR is merged, the **Prepare Release** job creates its tag and draft release. The **Publish Release** job checks out the release commit and uses [`cli/gh-extension-precompile`](https://github.com/cli/gh-extension-precompile) to build and upload binaries, embed the release version, and generate attestations. It then publishes the completed release. Publishing does not rerun the validation workflows. RCs remain opt-in prereleases.
-4. When the RC is ready, merge a reviewed promotion PR from `next` into `main`. Use a releasable Conventional Commit title, such as `feat: promote tested changes`, when squash merging. Release Please opens or updates the stable release PR. Approve its workflows, review the version and notes, and merge after the required checks pass. The same publishing job produces the stable release and marks it Latest.
-5. Merge `main` back into `next` after a stable release so its version manifest includes the stable version before starting the next RC series.
+Merging feature PRs into `main` does not publish binaries. Users install or upgrade to the latest published stable release; unreleased changes are available through a [source build](README.md#installation).
 
 Failed PR checks block merging when branch protection is configured. Failed release builds or attestations leave the release draft. Use GitHub Actions' **Re-run failed jobs** on the original run to retry publishing.
 
-The draft, upload, and publish sequence supports [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases). If enabled in repository settings, published assets and tags cannot be replaced, including for RCs. Publish a new version to correct a binary; draft releases remain retryable.
+The draft, upload, and publish sequence supports [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases). If enabled in repository settings, published assets and tags cannot be replaced. Publish a new version to correct a binary; draft releases remain retryable.
 
-Release history starts after the final Bash commit. The Go rewrite starts the V2 release line. The manifest starts empty so each channel uses its configured initial version; Release Please updates `.release-please-manifest.json` in release PRs. The stable configuration uses the prerelease versioning strategy with prereleases disabled so a promoted candidate becomes the corresponding stable version, such as `2.0.0-rc.2` to `2.0.0`. Subsequent stable releases follow Conventional Commits. The prerelease configuration starts each new candidate series at `rc.1` and increments the candidate number for later releases.
+The Go rewrite starts the V2 release line. [.release-please-manifest.json](.release-please-manifest.json) records the current stable version. Release Please uses its standard versioning strategy to derive the next version from Conventional Commits since the last release and updates the manifest in release PRs.
 
-Release Please populates `CHANGELOG.md` for the first release and maintains it automatically. The `extra-files` setting updates the annotated installation example below. Release binaries receive the tag through build flags; local source builds continue to report `dev`.
+Release Please maintains `CHANGELOG.md` automatically. The `extra-files` setting updates the annotated installation example below. Release binaries receive the tag through build flags; local source builds continue to report `dev`.
 
 Enable **Allow GitHub Actions to create and approve pull requests** in repository settings. The workflow uses the built-in `GITHUB_TOKEN`. Publishing runs in the same workflow and does not rely on bot-created tags triggering another run.
 
-After the first release is published, install it using its tag:
+Install the latest stable release without a pin:
+
+```sh
+gh extension install jrmash/gh-get-repos
+```
+
+Upgrade an existing installation and verify its version:
+
+```sh
+gh extension upgrade get-repos && gh get-repos --version
+```
+
+To install a specific version:
 
 <!-- x-release-please-start-version -->
 
@@ -119,7 +125,7 @@ gh get-repos --version
 
 <!-- x-release-please-end -->
 
-Remove an existing installation before switching to a different installation type. To move to another RC, reinstall with the new `--pin` value and `--force`. Validate installation and version output from the first RC before approving a stable release.
+Pinned installations stay on that version. To change a pin, reinstall with the new `--pin` value and `--force`. Verify installation and version output after each release.
 
 ## Hosted repository setup
 
@@ -128,8 +134,7 @@ These settings require repository administration and are not configured by files
 - Confirm `origin` points to the hosted repository and enable Actions.
 - Use the CodeQL jobs in `check-code.yml` for advanced setup; avoid also enabling a duplicate default setup. Code scanning requires an eligible repository or GitHub Code Security access.
 - Enable Dependabot alerts, security updates, dependency graph, private vulnerability reporting, and secret scanning/push protection where available.
-- Create `next` from the code intended for prerelease testing, including this workflow and both release configurations.
-- Protect `main` and `next` with all build/test and code checks listed below, plus `Markdown` and `Pre-commit`. Ordinary branch protection requires individual job checks; selecting a workflow name does not require all its jobs. Add the exact names after their first successful runs, and require PR branches to be up to date before merging. Replace existing `CI`, `Smoke`, and aggregate `Code checks` requirements when adopting these workflows.
+- Protect `main` with all build/test and code checks listed below, plus `Markdown` and `Pre-commit`. Ordinary branch protection requires individual job checks; selecting a workflow name does not require all its jobs. Add the exact names after their first successful runs, and require PR branches to be up to date before merging. Replace existing `CI`, `Smoke`, and aggregate `Code checks` requirements when adopting these workflows.
 - Restrict release tag creation to maintainers with repository rulesets and review changes to workflow permissions.
 
 Hosted settings and workflow execution must be verified on GitHub after pushing the branch.

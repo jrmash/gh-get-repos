@@ -2,7 +2,7 @@ name: Release PR
 
 on:
   push:
-    branches: [main, next]
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -14,7 +14,7 @@ permissions:
 jobs:
   prepare:
     name: Prepare Release
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || github.ref == 'refs/heads/next'
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -31,10 +31,7 @@ jobs:
         id: release
         with:
           target-branch: ${{ github.ref_name }}
-          config-file: >-
-            ${{ github.ref_name == github.event.repository.default_branch
-                && '.release-please-config.json'
-                || '.release-please-config-prerelease.json' }}
+          config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -65,6 +62,5 @@ jobs:
       - name: Publish Release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_LATEST: ${{ github.ref_name == github.event.repository.default_branch }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
-        run: gh release edit "$RELEASE_TAG" --verify-tag --draft=false --latest="$RELEASE_LATEST"
+        run: gh release edit "$RELEASE_TAG" --verify-tag --draft=false --latest
