@@ -1,0 +1,10 @@
+timeout = 20
+max_retries = 2
+retry_wait_time = 2
+
+exclude = [
+  # Workflow URLs become available after the workflows reach the default branch.
+  '^https://github\.com/jrmash/gh-get-repos/actions/workflows/',
+  # Release Please adds comparison links before the new release tag exists.
+  '^https://github\.com/jrmash/gh-get-repos/compare/v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?\.\.\.v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$',
+]

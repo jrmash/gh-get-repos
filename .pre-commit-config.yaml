@@ -1,21 +1,27 @@
 fail_fast: true
 repos:
-- repo: https://github.com/pre-commit/pre-commit-hooks
-  rev: v4.1.0
-  hooks:
-    - id: check-case-conflict
-    - id: check-merge-conflict
-    - id: check-symlinks
-    - id: check-yaml
-    - id: end-of-file-fixer
-    - id: fix-byte-order-marker
-    - id: forbid-new-submodules
-    - id: mixed-line-ending
-    - id: no-commit-to-branch
-      args: [--branch, main]
-    - id: trailing-whitespace
--   repo: https://github.com/koalaman/shellcheck-precommit
-    rev: v0.8.0
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # frozen: v6.0.0
     hooks:
-    -   id: shellcheck
-        args: ["-e", "SC2155"]
+      - id: check-case-conflict
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-symlinks
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: fix-byte-order-marker
+      - id: forbid-new-submodules
+      - id: mixed-line-ending
+      - id: no-commit-to-branch
+        args: [--branch, main]
+      - id: trailing-whitespace
+  - repo: https://github.com/TekWizely/pre-commit-golang
+    rev: f298c082154b2cb239fac06a4f452368e66e66dd # frozen: v1.0.0-rc.4
+    hooks:
+      - id: go-fmt
+        args: [-w]
+      - id: go-mod-tidy
+        args: [-diff]
+        files: '(^go\.(mod|sum)$|\.go$)'
+      - id: go-vet-mod
+        files: '(^go\.(mod|sum)$|\.go$)'
