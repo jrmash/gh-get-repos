@@ -25,9 +25,7 @@ gh extension install jrmash/gh-get-repos
 gh get-repos --help
 ```
 
-Use Git 2.36 or newer and a recent GitHub CLI with `gh api --paginate --slurp` and `gh repo clone --no-upstream` support. Precompiled releases require no Go installation. To build from source, use the Go version in `go.mod` or newer:
-
-For the unreleased Go rewrite on this branch, use the source build below. Remote installation uses the published release.
+Use Git 2.36 or newer and a recent GitHub CLI with `gh api --paginate --slurp` and `gh repo clone --no-upstream` support. The default installation downloads a binary from the latest stable release and requires no Go installation. To build unreleased source from `main`, use the Go version in `go.mod` or newer:
 
 ```sh
 git clone https://github.com/jrmash/gh-get-repos.git

@@ -8,17 +8,17 @@ on:
       - '.github/workflows/**'
       - '.gitignore'
       - '.markdownlint*'
-      - '.release-please-config*.json'
+      - '.release-please-config.json'
       - 'lychee.toml'
   push:
-    branches: [main, next]
+    branches: [main]
     paths:
       - '**/*.markdown'
       - '**/*.md'
       - '.github/workflows/**'
       - '.gitignore'
       - '.markdownlint*'
-      - '.release-please-config*.json'
+      - '.release-please-config.json'
       - 'lychee.toml'
   workflow_dispatch:
 
