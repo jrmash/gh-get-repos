@@ -113,7 +113,7 @@ After the first release is published, install it using its tag:
 <!-- x-release-please-start-version -->
 
 ```sh
-gh extension install jrmash/gh-get-repos --pin v2.0.0-rc.1
+gh extension install jrmash/gh-get-repos --pin v2.0.0
 gh get-repos --version
 ```
 
