@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/jrmash/gh-get-repos/compare/v2.0.0-rc.1...v2.0.0) (2026-11-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* replace Bash extension with Go v2 ([#15](https://github.com/jrmash/gh-get-repos/issues/15))
+
+### Features
+
+* replace Bash extension with Go v2 ([#15](https://github.com/jrmash/gh-get-repos/issues/15)) ([f48892b](https://github.com/jrmash/gh-get-repos/commit/f48892b6941cadefb3bac3b6a5abef3e80f93910))
+
 ## 2.0.0-rc.1 (2026-11-08)
 
 
