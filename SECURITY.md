@@ -8,4 +8,6 @@ The extension relies on GitHub CLI for authentication and repository discovery a
 
 Repository automation includes CodeQL for Go and GitHub Actions, a reachable-vulnerability scan with `govulncheck`, and weekly Dependabot updates. Required PR checks gate merges when branch protection is configured. After a release PR is merged, publishing builds the release commit without repeating those checks. Release assets include provenance attestations produced by the official extension release action.
 
+Follow the [security maintenance procedure](CONTRIBUTING.md#security-checks-and-dependency-updates) to triage findings, update dependencies or the Go toolchain, validate the fix, and publish rebuilt binaries.
+
 See [CONTRIBUTING.md](CONTRIBUTING.md#hosted-repository-setup) for hosted security settings that maintainers must enable. Availability depends on the repository and GitHub plan; see [GitHub's code scanning requirements](https://docs.github.com/en/code-security/how-tos/find-and-fix-code-vulnerabilities/manage-your-configuration/codeql-for-compiled-languages).

@@ -64,7 +64,16 @@ go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
 govulncheck ./...
 ```
 
-All third-party Actions are pinned to full commit SHAs with readable version comments. Dependabot checks modules and action pins weekly, groups compatible minor/patch updates, and leaves major updates separate. Update the scanner pin deliberately when changing the Go toolchain; tool versions embedded in shell commands are not automatically updated by the Go module ecosystem.
+All third-party Actions are pinned to full commit SHAs with readable version comments. Dependabot checks modules and action pins weekly, groups compatible minor/patch updates, and leaves major updates separate. Check the Go toolchain selected by `go.mod` separately from module dependency updates; standard-library vulnerabilities can require a Go update even when no Dependabot PR exists. Tool versions embedded in shell commands are also outside Go module updates; retain the `govulncheck` v1.9.0 pin unless compatibility requires an update.
+
+Follow this procedure for security maintenance:
+
+1. Inspect the scan or advisory and classify the finding as a Go standard-library/toolchain vulnerability, a module vulnerability, or a scanner/tool failure. Confirm affected and fixed versions against the official advisory and release notes. Use `govulncheck -show verbose ./...` to distinguish module-version findings from imported packages and called symbols, then check the advisory's trigger conditions; a symbol match alone does not prove exploitability. Record that assessment even when updating as a precaution.
+2. Sync `main`, then create a branch named `fix/security-<component>-<fixed-version>`, for example `fix/security-go-1.27.4`.
+3. Make the targeted update. For a Go toolchain fix, update `go.mod` and any explicit source-build version references; this repository's README already refers to `go.mod`, and CI and release compilation both read that file. For a module fix, update the affected dependency and resulting module metadata.
+4. Run the [local checks](#local-checks), the vulnerability scan above, and the [Markdown checks](#markdown-checks). Resolve remaining findings and confirm the configured platform checks pass in CI.
+5. Open a PR with the advisory IDs and links, the triggering workflow run when applicable, affected and fixed versions, the reachability assessment, and validation results. Use a `fix(security): ...` PR and squash title for fixes affecting shipped binaries, including precautionary toolchain updates, for example `fix(security): upgrade Go to 1.27.4`, so Release Please includes the fix in a patch release. Wait for all required checks before squash merging.
+6. Review and merge the generated [Release Please PR](#releases) to rebuild and publish binaries with the fix. Verify release assets, installation and version output, and vulnerability scan status. For a Go toolchain fix, confirm the patched compiler version in a downloaded binary with `go version -m <binary>`. Merging the security PR alone does not update published binaries.
 
 ## Markdown checks
 
