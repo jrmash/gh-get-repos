@@ -2,14 +2,6 @@ name: Check Code
 
 on:
   pull_request:
-    paths:
-      - '**/*.go'
-      - '**/testdata/**'
-      - '.gitattributes'
-      - '.github/actions/**'
-      - '.github/workflows/**'
-      - 'go.*'
-      - 'vendor/**'
   push:
     branches: [main]
     paths:
@@ -28,7 +20,47 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Detect code changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      relevant: ${{ github.event_name != 'pull_request' || steps.filter.outputs.relevant == 'true' }}
+    steps:
+      - name: Checkout
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Detect relevant changes
+        if: github.event_name == 'pull_request'
+        id: filter
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # Compare the entire PR; include deleted and renamed-away paths.
+          if git diff --quiet --no-ext-diff --no-renames "$BASE_SHA...$HEAD_SHA" -- \
+            ':(glob)**/*.go' \
+            ':(glob)**/testdata/**' \
+            ':(glob).gitattributes' \
+            ':(glob).github/actions/**' \
+            ':(glob).github/workflows/**' \
+            ':(glob)go.*' \
+            ':(glob)vendor/**'; then
+            echo 'relevant=false' >> "$GITHUB_OUTPUT"
+          else
+            result=$?
+            # Exit 1 means differences; any other nonzero result is an error.
+            if [ "$result" -ne 1 ]; then exit "$result"; fi
+            echo 'relevant=true' >> "$GITHUB_OUTPUT"
+          fi
+
   lint:
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true'
     name: Static checks (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
@@ -57,6 +89,8 @@ jobs:
           govulncheck ./...
 
   sca:
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true'
     name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -93,3 +127,26 @@ jobs:
         uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           category: /language:${{ matrix.language }}
+
+  required:
+    name: Code checks required
+    if: always()
+    needs: [changes, lint, sca]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify required results
+        env:
+          DETECTION: ${{ needs.changes.result }}
+          RELEVANT: ${{ needs.changes.outputs.relevant }}
+          RESULT_LINT: ${{ needs.lint.result }}
+          RESULT_SCA: ${{ needs.sca.result }}
+        run: |
+          test "$DETECTION" = success
+          case "$RELEVANT" in
+            true) expected=success ;;
+            false) expected=skipped ;;
+            *) exit 1 ;;
+          esac
+          test "$RESULT_LINT" = "$expected"
+          test "$RESULT_SCA" = "$expected"

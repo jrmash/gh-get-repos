@@ -19,7 +19,9 @@ Hook repositories are pinned to commit SHAs. Update them while preserving hash p
 pre-commit autoupdate --freeze
 ```
 
-Validation workflows support pull requests, pushes to `main`, and manual dispatch. Native path filters limit build/test runs to Go inputs, test fixtures, the CI helper, Git attributes, and the build workflow. Code checks run for Go inputs and workflow or action changes. Markdown checks run for documentation, lint/link configuration, ignore rules, and linked workflow or release configuration files. Manual runs bypass path filters, and scheduled security scans still run weekly.
+Validation workflows start on every pull request. A lightweight change-detection job uses the existing SHA-pinned checkout action with full history and native `git diff` pathspecs to compare the complete PR diff and runs build/test, code, and Markdown jobs only when their inputs changed. Build/test inputs include Go files, test fixtures, the CI helpers, Git attributes, and the build workflow. Code inputs include Go files, fixtures, Git attributes, modules, and workflow or action changes. Markdown inputs include documentation, lint/link configuration, ignore rules, and linked workflow or release configuration files. Pushes to `main` retain native path filters; manual runs and weekly security scans run all their checks.
+
+Each workflow ends with an always-running required check. It passes only when change detection succeeded and applicable jobs succeeded, or when detection explicitly marked the work unnecessary and those jobs were skipped. Detection failures, unexpected skips, failures, and cancellations cannot produce a passing gate.
 
 The [Execute pre-commit workflow](.github/workflows/execute-pre-commit.yml) runs the same hooks against all tracked files. It sets up Python and Go and uses the SHA-pinned pre-commit Action to run the hooks and report formatting changes as a failing check with a diff.
 
@@ -143,24 +145,18 @@ These settings require repository administration and are not configured by files
 - Confirm `origin` points to the hosted repository and enable Actions.
 - Use the CodeQL jobs in `check-code.yml` for advanced setup; avoid also enabling a duplicate default setup. Code scanning requires an eligible repository or GitHub Code Security access.
 - Enable Dependabot alerts, security updates, dependency graph, private vulnerability reporting, and secret scanning/push protection where available.
-- Protect `main` with all build/test and code checks listed below, plus `Markdown` and `Pre-commit`. Ordinary branch protection requires individual job checks; selecting a workflow name does not require all its jobs. Add the exact names after their first successful runs, and require PR branches to be up to date before merging. Replace existing `CI`, `Smoke`, and aggregate `Code checks` requirements when adopting these workflows.
+- Protect `main` with `Build and test required`, `Code checks required`, `Markdown required`, and `Pre-commit`. Add these exact job names after their first successful PR runs, and require PR branches to be up to date before merging. Replace all old individual build/test, static analysis, CodeQL, and `Markdown` requirements, as well as any legacy `CI`, `Smoke`, or `Code checks` requirements. Conditionally skipped matrix jobs may not emit their individual check names; the final checks enforce their results when applicable.
 - Restrict release tag creation to maintainers with repository rulesets and review changes to workflow permissions.
 
 Hosted settings and workflow execution must be verified on GitHub after pushing the branch.
 
-The required build/test checks are:
+The required checks summarize the following work:
 
-- `Build and Test (linux/amd64)`
-- `Build and Test (linux/arm64)`
-- `Build and Test (darwin/amd64)`
-- `Build and Test (darwin/arm64)`
-- `Build and Test (windows/amd64)`
-- `Build and Test (windows/arm64)`
+| Required check | Work enforced when applicable |
+| --- | --- |
+| `Build and test required` | All six Linux, macOS, and Windows x64/ARM64 build, test, coverage, and smoke jobs |
+| `Code checks required` | Static checks on Linux, macOS, and Windows, plus Go and Actions CodeQL analysis |
+| `Markdown required` | Markdown lint and link checks |
+| `Pre-commit` | All configured pre-commit hooks on every PR |
 
-The required code checks are:
-
-- `Static checks (ubuntu-latest)`
-- `Static checks (macos-latest)`
-- `Static checks (windows-latest)`
-- `Analyze (go)`
-- `Analyze (actions)`
+Documentation-only PRs run Markdown checks and Pre-commit; Go-only PRs run build/test, code checks, and Pre-commit. Every PR still reports all four required checks. Workflow/configuration changes run whichever checks match their inputs.
