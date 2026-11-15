@@ -2,14 +2,6 @@ name: Build and Test
 
 on:
   pull_request:
-    paths:
-      - '**/*.go'
-      - '**/testdata/**'
-      - '.gitattributes'
-      - '.github/workflows/build-test.yml'
-      - 'go.*'
-      - 'scripts/**'
-      - 'vendor/**'
   push:
     branches: [main]
     paths:
@@ -26,7 +18,47 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Detect build changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      relevant: ${{ github.event_name != 'pull_request' || steps.filter.outputs.relevant == 'true' }}
+    steps:
+      - name: Checkout
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Detect relevant changes
+        if: github.event_name == 'pull_request'
+        id: filter
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # Compare the entire PR; include deleted and renamed-away paths.
+          if git diff --quiet --no-ext-diff --no-renames "$BASE_SHA...$HEAD_SHA" -- \
+            ':(glob)**/*.go' \
+            ':(glob)**/testdata/**' \
+            ':(glob).gitattributes' \
+            ':(glob).github/workflows/build-test.yml' \
+            ':(glob)go.*' \
+            ':(glob)scripts/**' \
+            ':(glob)vendor/**'; then
+            echo 'relevant=false' >> "$GITHUB_OUTPUT"
+          else
+            result=$?
+            # Exit 1 means differences; any other nonzero result is an error.
+            if [ "$result" -ne 1 ]; then exit "$result"; fi
+            echo 'relevant=true' >> "$GITHUB_OUTPUT"
+          fi
+
   checks:
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true'
     name: Build and Test (${{ matrix.goos }}/${{ matrix.goarch }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
@@ -76,3 +108,24 @@ jobs:
           GHGR_SMOKE_GOOS: ${{ matrix.goos }}
           GHGR_SMOKE_GOARCH: ${{ matrix.goarch }}
         run: go test -tags smoke -count=1 -v -timeout=15m ./integration
+
+  required:
+    name: Build and test required
+    if: always()
+    needs: [changes, checks]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify required results
+        env:
+          DETECTION: ${{ needs.changes.result }}
+          RELEVANT: ${{ needs.changes.outputs.relevant }}
+          RESULT_CHECKS: ${{ needs.checks.result }}
+        run: |
+          test "$DETECTION" = success
+          case "$RELEVANT" in
+            true) expected=success ;;
+            false) expected=skipped ;;
+            *) exit 1 ;;
+          esac
+          test "$RESULT_CHECKS" = "$expected"
