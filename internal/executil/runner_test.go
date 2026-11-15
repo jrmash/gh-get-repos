@@ -38,6 +38,8 @@ func TestMain(m *testing.M) {
 			os.Exit(8)
 		case "block":
 			time.Sleep(30 * time.Second)
+		case "tree-parent", "tree-child", "tree-grandchild":
+			runnerProcessTreeHelper(os.Getenv("GHGR_RUNNER_TEST_MODE"))
 		default:
 			fmt.Fprint(os.Stdout, "captured stdout\n")
 			fmt.Fprint(os.Stderr, "captured stderr\n")

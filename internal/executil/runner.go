@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	gh "github.com/cli/go-gh/v2"
 	"github.com/cli/safeexec"
@@ -49,7 +50,10 @@ func (r ProcessRunner) Run(ctx context.Context, name string, args ...string) (st
 	if err != nil {
 		return "", fmt.Errorf("find %s: %w", name, err)
 	}
-	cmd := exec.CommandContext(ctx, path, args...)
+	cmd := exec.Command(path, args...)
+	// A descendant that escapes process ownership must not hold output pipes
+	// open indefinitely after the command exits.
+	cmd.WaitDelay = time.Second
 	cmd.Env = commandEnv(os.Environ())
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -62,7 +66,7 @@ func (r ProcessRunner) Run(ctx context.Context, name string, args ...string) (st
 		cmd.Stdout = io.MultiWriter(&stdout, logs)
 		cmd.Stderr = io.MultiWriter(&stderr, logs)
 	}
-	if err := cmd.Run(); err != nil {
+	if err := runCommand(ctx, cmd); err != nil {
 		if ctx.Err() != nil {
 			return stdout.String(), ctx.Err()
 		}
@@ -73,6 +77,37 @@ func (r ProcessRunner) Run(ctx context.Context, name string, args ...string) (st
 		return stdout.String(), &commandError{name: name, message: message, cause: err}
 	}
 	return stdout.String(), nil
+}
+
+func runCommand(ctx context.Context, cmd *exec.Cmd) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	tree, err := startCommand(cmd)
+	if err != nil {
+		return err
+	}
+	defer tree.close()
+
+	// CommandContext stops watching once the direct process exits, even if
+	// descendants still hold its output pipes. Watch until Wait fully returns.
+	done := make(chan struct{})
+	canceled := make(chan bool, 1)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = tree.kill()
+			canceled <- true
+		case <-done:
+			canceled <- false
+		}
+	}()
+	err = cmd.Wait()
+	close(done)
+	if <-canceled {
+		return ctx.Err()
+	}
+	return err
 }
 
 func gitOperation(args []string) bool {
