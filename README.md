@@ -197,7 +197,7 @@ With `--safe-mode=false`, the extension checks out the GitHub default branch and
 
 In both modes, an existing empty remote's checkout is unchanged only when clean and without local commits. GitHub CLI and Git terminal credential prompts remain disabled; configure authentication before running a batch.
 
-Wrong origins and incompatible or unrelated destination directories produce failures. Processing continues after individual problems. An interruption cancels the active command or sleep.
+Wrong origins and incompatible or unrelated destination directories produce failures. Processing continues after individual problems. An interruption cancels the active command and its descendants, or the active sleep.
 
 ## Output and exit codes
 
