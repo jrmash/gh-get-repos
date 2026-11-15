@@ -7,10 +7,41 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 func TestRunPreservesPostCheckoutBackgroundTask(t *testing.T) {
+	for _, source := range []string{"inherited", "config-count", "config-parameters"} {
+		t.Run(source, func(t *testing.T) {
+			switch source {
+			case "config-count":
+				t.Setenv("GIT_CONFIG_COUNT", "1")
+				t.Setenv("GIT_CONFIG_KEY_0", "core.hooksPath")
+				t.Setenv("GIT_CONFIG_VALUE_0", os.DevNull)
+			case "config-parameters":
+				t.Setenv("GIT_CONFIG_PARAMETERS", "'core.hooksPath="+os.DevNull+"'")
+			}
+			testPostCheckoutBackgroundTask(t)
+		})
+	}
+}
+
+func testPostCheckoutBackgroundTask(t *testing.T) {
+	t.Helper()
+	// Like the synchronization fixtures, discard inherited Git context and
+	// configuration so injected settings cannot redirect our hook or templates.
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		if strings.HasPrefix(strings.ToUpper(key), "GIT_") {
+			// Register restoration before removing the variable entirely: empty
+			// values are not equivalent to unset for every Git setting.
+			t.Setenv(key, "")
+			if err := os.Unsetenv(key); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	directory := t.TempDir()
