@@ -39,7 +39,17 @@ func TestMain(m *testing.M) {
 		case "block":
 			time.Sleep(30 * time.Second)
 		case "tree-parent", "tree-child", "tree-grandchild":
-			runnerProcessTreeHelper(os.Getenv("GHGR_RUNNER_TEST_MODE"))
+			role := os.Getenv("GHGR_RUNNER_TEST_MODE")
+			runnerProcessTreeHelper(role)
+			if role == "tree-parent" && os.Getenv("GHGR_RUNNER_TEST_PARENT_EXIT") == "7" {
+				os.Exit(7)
+			}
+		case "background-parent", "background-child":
+			role := os.Getenv("GHGR_RUNNER_TEST_MODE")
+			runnerBackgroundHelper(role)
+			if role == "background-parent" && os.Getenv("GHGR_RUNNER_TEST_PARENT_EXIT") == "7" {
+				os.Exit(7)
+			}
 		default:
 			fmt.Fprint(os.Stdout, "captured stdout\n")
 			fmt.Fprint(os.Stderr, "captured stderr\n")

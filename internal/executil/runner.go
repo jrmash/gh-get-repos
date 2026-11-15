@@ -51,9 +51,6 @@ func (r ProcessRunner) Run(ctx context.Context, name string, args ...string) (st
 		return "", fmt.Errorf("find %s: %w", name, err)
 	}
 	cmd := exec.Command(path, args...)
-	// A descendant that escapes process ownership must not hold output pipes
-	// open indefinitely after the command exits.
-	cmd.WaitDelay = time.Second
 	cmd.Env = commandEnv(os.Environ())
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -83,14 +80,40 @@ func runCommand(ctx context.Context, cmd *exec.Cmd) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	// Own the output pipes so the drain timeout remains observable even when
+	// the process fails: Cmd.Wait masks ErrWaitDelay behind an ExitError.
+	var outputs []commandOutput
+	defer func() {
+		for _, output := range outputs {
+			_ = output.reader.Close()
+			_ = output.writer.Close()
+		}
+	}()
+	for _, target := range []io.Writer{cmd.Stdout, cmd.Stderr} {
+		reader, writer, err := os.Pipe()
+		if err != nil {
+			return err
+		}
+		outputs = append(outputs, commandOutput{reader, writer, target})
+	}
+	cmd.Stdout, cmd.Stderr = outputs[0].writer, outputs[1].writer
 	tree, err := startCommand(cmd)
 	if err != nil {
 		return err
 	}
 	defer tree.close()
+	copied := make(chan error, len(outputs))
+	for _, output := range outputs {
+		_ = output.writer.Close()
+		go func() {
+			_, err := io.Copy(output.target, output.reader)
+			_ = output.reader.Close()
+			copied <- err
+		}()
+	}
 
 	// CommandContext stops watching once the direct process exits, even if
-	// descendants still hold its output pipes. Watch until Wait fully returns.
+	// descendants still hold its output pipes. Watch until output draining ends.
 	done := make(chan struct{})
 	canceled := make(chan bool, 1)
 	go func() {
@@ -103,9 +126,43 @@ func runCommand(ctx context.Context, cmd *exec.Cmd) error {
 		}
 	}()
 	err = cmd.Wait()
+	if outputErr := drainCommandOutput(tree, outputs, copied); err == nil {
+		err = outputErr
+	}
 	close(done)
 	if <-canceled {
 		return ctx.Err()
+	}
+	return err
+}
+
+type commandOutput struct {
+	reader, writer *os.File
+	target         io.Writer
+}
+
+func drainCommandOutput(tree *commandTree, outputs []commandOutput, copied <-chan error) error {
+	// The process has exited. A descendant holding either output pipe must not
+	// block completion indefinitely, regardless of the process's exit status.
+	timer := time.NewTimer(time.Second)
+	defer timer.Stop()
+	var err error
+	for remaining := len(outputs); remaining > 0; remaining-- {
+		select {
+		case outputErr := <-copied:
+			if err == nil {
+				err = outputErr
+			}
+		case <-timer.C:
+			_ = tree.kill()
+			for _, output := range outputs {
+				_ = output.reader.Close()
+			}
+			for range remaining {
+				<-copied
+			}
+			return exec.ErrWaitDelay
+		}
 	}
 	return err
 }
@@ -124,7 +181,7 @@ func gitOperation(args []string) bool {
 	return false
 }
 
-// os/exec copies stdout and stderr concurrently. An arbitrary log writer may
+// stdout and stderr are copied concurrently. An arbitrary log writer may
 // not support concurrent writes, even though the batch itself is sequential.
 type lockedWriter struct {
 	mu     sync.Mutex

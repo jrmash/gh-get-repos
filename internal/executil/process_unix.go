@@ -32,7 +32,4 @@ func (tree *commandTree) kill() error {
 	return nil
 }
 
-func (tree *commandTree) close() {
-	// Also clean up descendants left behind when their parent exited first.
-	_ = tree.kill()
-}
+func (tree *commandTree) close() {}

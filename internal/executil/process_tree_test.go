@@ -60,16 +60,19 @@ func TestRunCancelsDescendants(t *testing.T) {
 		parentExits   bool
 		verbose       bool
 		withoutCancel bool
+		exitCode      int
 	}{
-		{"clone-captured", "gh", []string{"repo", "clone", "example/repo"}, false, false, false},
-		{"clone-verbose-exited-parent", "gh", []string{"repo", "clone", "example/repo"}, true, true, false},
-		{"fetch-verbose", "git", []string{"fetch", "origin"}, false, true, false},
-		{"fetch-captured-exited-parent", "git", []string{"fetch", "origin"}, true, false, false},
-		{"parent-exit-without-cancellation", "gh", []string{"repo", "clone", "example/repo"}, true, false, true},
+		{"clone-captured", "gh", []string{"repo", "clone", "example/repo"}, false, false, false, 0},
+		{"clone-verbose-exited-parent", "gh", []string{"repo", "clone", "example/repo"}, true, true, false, 0},
+		{"fetch-verbose", "git", []string{"fetch", "origin"}, false, true, false, 0},
+		{"fetch-captured-exited-parent", "git", []string{"fetch", "origin"}, true, false, false, 0},
+		{"parent-exit-without-cancellation", "gh", []string{"repo", "clone", "example/repo"}, true, false, true, 0},
+		{"failed-parent-without-cancellation", "gh", []string{"repo", "clone", "example/repo"}, true, false, true, 7},
 	} {
 		t.Run(tt.label, func(t *testing.T) {
 			installGitHelper(t)
 			t.Setenv("GHGR_RUNNER_TEST_MODE", "tree-parent")
+			t.Setenv("GHGR_RUNNER_TEST_PARENT_EXIT", fmt.Sprint(tt.exitCode))
 			t.Setenv("GORACE", "atexit_sleep_ms=0")
 			listener, err := net.Listen("tcp", "127.0.0.1:0")
 			if err != nil {
@@ -144,7 +147,15 @@ func TestRunCancelsDescendants(t *testing.T) {
 			select {
 			case result := <-done:
 				returned = true
-				if !errors.Is(result.err, wantErr) || result.output != "tree output\n" {
+				if result.output != "tree output\n" {
+					t.Fatalf("output %q", result.output)
+				}
+				if tt.exitCode != 0 {
+					var exit *exec.ExitError
+					if !errors.As(result.err, &exit) || exit.ExitCode() != tt.exitCode {
+						t.Fatalf("exit status was lost: %v", result.err)
+					}
+				} else if !errors.Is(result.err, wantErr) {
 					t.Fatalf("output %q, error %v; want %v", result.output, result.err, wantErr)
 				}
 				if tt.verbose && !strings.Contains(logs.String(), "tree diagnostics\n") {

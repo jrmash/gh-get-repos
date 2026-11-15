@@ -29,12 +29,6 @@ func startCommand(cmd *exec.Cmd) (*commandTree, error) {
 		tree.close()
 		return nil, err
 	}
-	var limits windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
-	limits.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation,
-		uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); err != nil {
-		return fail(fmt.Errorf("configure process job: %w", err))
-	}
 	// Assign before the primary thread executes, so even a short-lived launcher
 	// cannot create children outside the job or exit before it can be assigned.
 	if cmd.SysProcAttr == nil {
@@ -93,5 +87,7 @@ func (tree *commandTree) kill() error {
 }
 
 func (tree *commandTree) close() {
+	// Only kill explicitly on cancellation or a pipe timeout. Closing the job
+	// otherwise preserves background helpers started by successful commands.
 	_ = windows.CloseHandle(tree.job)
 }
