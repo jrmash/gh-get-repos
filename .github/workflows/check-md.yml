@@ -2,14 +2,6 @@ name: Check Markdown
 
 on:
   pull_request:
-    paths:
-      - '**/*.markdown'
-      - '**/*.md'
-      - '.github/workflows/**'
-      - '.gitignore'
-      - '.markdownlint*'
-      - '.release-please-config.json'
-      - 'lychee.toml'
   push:
     branches: [main]
     paths:
@@ -26,7 +18,47 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Detect markdown changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      relevant: ${{ github.event_name != 'pull_request' || steps.filter.outputs.relevant == 'true' }}
+    steps:
+      - name: Checkout
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Detect relevant changes
+        if: github.event_name == 'pull_request'
+        id: filter
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # Compare the entire PR; include deleted and renamed-away paths.
+          if git diff --quiet --no-ext-diff --no-renames "$BASE_SHA...$HEAD_SHA" -- \
+            ':(glob)**/*.markdown' \
+            ':(glob)**/*.md' \
+            ':(glob).github/workflows/**' \
+            ':(glob).gitignore' \
+            ':(glob).markdownlint*' \
+            ':(glob).release-please-config.json' \
+            ':(glob)lychee.toml'; then
+            echo 'relevant=false' >> "$GITHUB_OUTPUT"
+          else
+            result=$?
+            # Exit 1 means differences; any other nonzero result is an error.
+            if [ "$result" -ne 1 ]; then exit "$result"; fi
+            echo 'relevant=true' >> "$GITHUB_OUTPUT"
+          fi
+
   markdown:
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true'
     name: Markdown
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -44,3 +76,24 @@ jobs:
         uses: DavidAnson/markdownlint-cli2-action@696eb3f2509270d7b882d2aa68347bc676e7af34 # v25.0.0
         with:
           globs: '**/*.{md,markdown}'
+
+  required:
+    name: Markdown required
+    if: always()
+    needs: [changes, markdown]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify required results
+        env:
+          DETECTION: ${{ needs.changes.result }}
+          RELEVANT: ${{ needs.changes.outputs.relevant }}
+          RESULT_MARKDOWN: ${{ needs.markdown.result }}
+        run: |
+          test "$DETECTION" = success
+          case "$RELEVANT" in
+            true) expected=success ;;
+            false) expected=skipped ;;
+            *) exit 1 ;;
+          esac
+          test "$RESULT_MARKDOWN" = "$expected"
