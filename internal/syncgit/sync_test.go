@@ -455,8 +455,22 @@ func (r productionFixtureRunner) Run(ctx context.Context, name string, args ...s
 }
 
 func TestProductionRunnerCreatesMissingDefaultBranch(t *testing.T) {
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	// Match fixture setup while still exercising the actual production runner.
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		if strings.HasPrefix(strings.ToUpper(key), "GIT_") {
+			t.Setenv(key, "") // Register restoration before removing the variable.
+			if err := os.Unsetenv(key); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for _, entry := range gitEnv() {
+		key, value, _ := strings.Cut(entry, "=")
+		if strings.HasPrefix(strings.ToUpper(key), "GIT_") {
+			t.Setenv(key, value)
+		}
+	}
 	for _, safe := range []bool{true, false} {
 		t.Run("safe-mode="+strconv.FormatBool(safe), func(t *testing.T) {
 			for _, unborn := range []bool{false, true} {
