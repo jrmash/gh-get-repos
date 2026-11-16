@@ -144,7 +144,7 @@ func (s Synchronizer) Sync(ctx context.Context, repo Repository, path string) Re
 			return fail(fmt.Errorf("inspect Git operation: %w", err))
 		}
 	}
-	status, err := git("status", "--porcelain=v1", "--untracked-files=all", "--ignore-submodules=none")
+	status, err := git("status", "--porcelain=v1", "--untracked-files=normal", "--ignore-submodules=none")
 	if err != nil {
 		return fail(fmt.Errorf("inspect working tree: %w", err))
 	}

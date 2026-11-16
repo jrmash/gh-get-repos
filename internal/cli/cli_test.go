@@ -524,7 +524,7 @@ func TestSafeModeFlagReachesSynchronizer(t *testing.T) {
 					return "https://github.com/Octo/a.git", nil
 				case "rev-parse --absolute-git-dir":
 					return filepath.Join(path, ".git"), nil
-				case "status --porcelain=v1 --untracked-files=all --ignore-submodules=none":
+				case "status --porcelain=v1 --untracked-files=normal --ignore-submodules=none":
 					return "?? local-file", nil
 				case "symbolic-ref --quiet --short HEAD":
 					return "main", nil
