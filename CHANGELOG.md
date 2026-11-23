@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.0.1](https://github.com/jrmash/gh-get-repos/compare/v2.0.0...v2.0.1) (2026-11-23)
+
+
+### Bug Fixes
+
+* cancel command descendants and bound output waits ([#20](https://github.com/jrmash/gh-get-repos/issues/20)) ([17f253c](https://github.com/jrmash/gh-get-repos/commit/17f253ccf9f455ff3bc376b683ec26c4be175980))
+* **ci:** prevent skipped workflows from blocking valid PRs ([#21](https://github.com/jrmash/gh-get-repos/issues/21)) ([2e26592](https://github.com/jrmash/gh-get-repos/commit/2e26592ea08ef8b3e432ed888536f4513b6603f9))
+* **security:** upgrade Go to 1.27.4 ([#18](https://github.com/jrmash/gh-get-repos/issues/18)) ([5fae611](https://github.com/jrmash/gh-get-repos/commit/5fae6110eb621badab8243d3def1613b33fb9923))
+* sync dirty-check output and Git test isolation ([#22](https://github.com/jrmash/gh-get-repos/issues/22)) ([4473b74](https://github.com/jrmash/gh-get-repos/commit/4473b745f1e23aaefe340a9d88807737d85d2ab4))
+
 ## [2.0.0](https://github.com/jrmash/gh-get-repos/compare/v2.0.0-rc.1...v2.0.0) (2026-11-09)
 
 
