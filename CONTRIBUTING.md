@@ -130,7 +130,7 @@ To install a specific version:
 <!-- x-release-please-start-version -->
 
 ```sh
-gh extension install jrmash/gh-get-repos --pin v2.0.0
+gh extension install jrmash/gh-get-repos --pin v2.0.1
 gh get-repos --version
 ```
 
